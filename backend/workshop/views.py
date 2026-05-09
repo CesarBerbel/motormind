@@ -1,8 +1,11 @@
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.mail import send_mail
 from django.db.models import Count, F, Q, Sum
 from django.http import HttpResponse
 from django.utils import timezone
+import logging
 import requests
 from rest_framework import status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -78,9 +81,11 @@ from .serializers import (
     WorkshopServiceSerializer,
 )
 from .documents import generate_work_order_pdf
-from .services import adjust_part_stock, change_work_order_status, complete_work_order_service, quality_check_work_order_service, record_event, send_work_order_message, start_work_order_service, trigger_status_notifications
+from .state_machine import SOURCE_SYSTEM
+from .services import adjust_part_stock, build_customer_approval_url, change_work_order_status, complete_work_order_service, quality_check_work_order_service, record_event, send_work_order_message, start_work_order_service, technical_move_work_order, trigger_status_notifications
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 def drf_validation_from_django(exc):
@@ -104,6 +109,83 @@ def pdf_response(work_order, document_type):
     response = HttpResponse(content, content_type="application/pdf")
     response["Content-Disposition"] = f'inline; filename="{filename}"'
     return response
+
+
+def build_customer_approval_public_url(request, approval):
+    """Monta a URL pública do frontend para aprovação digital.
+
+    Em desenvolvimento, usa FRONTEND_BASE_URL do .env/settings para que o link
+    enviado por e-mail aponte para o Vite. O frontend também pode sobrescrever
+    enviando frontend_base_url no payload ou o header X-Frontend-Base-Url.
+    """
+    base_url = (
+        request.data.get("frontend_base_url")
+        or request.headers.get("X-Frontend-Base-Url")
+        or getattr(settings, "FRONTEND_BASE_URL", "")
+    )
+    if not base_url:
+        # Fallback defensivo: evita str.rstrip('/api/'), que remove caracteres e
+        # não o sufixo literal. Ex.: http://host/api/ -> http://host
+        absolute_root = request.build_absolute_uri("/").rstrip("/")
+        base_url = absolute_root[:-4] if absolute_root.endswith("/api") else absolute_root
+    return f"{str(base_url).rstrip('/')}{approval.public_url_path}"
+
+
+def send_customer_approval_email(approval, public_url):
+    """Envia e registra no console o link de aprovação digital para o cliente.
+
+    A impressão explícita no log/STDOUT é intencional: mesmo que o ambiente esteja
+    usando SMTP, Docker/Gunicorn ou outro backend de e-mail, o link de aprovação
+    fica visível no console do backend para teste e homologação.
+    """
+    work_order = approval.work_order
+    customer = work_order.customer
+    recipient = (approval.customer_email_snapshot or getattr(customer, "email", "") or "").strip()
+    customer_name = approval.customer_name_snapshot or customer.full_name or "cliente"
+    vehicle_display = work_order.vehicle.display_name if work_order.vehicle_id else "veículo não informado"
+    subject = f"Aprovação digital - {approval.document_type_label} {work_order.number}"
+    message = (
+        f"Olá {customer_name},\n\n"
+        f"A oficina gerou um link para você analisar e aprovar digitalmente o documento abaixo.\n\n"
+        f"Documento: {approval.document_type_label}\n"
+        f"OS: {work_order.number}\n"
+        f"Veículo: {vehicle_display}\n"
+        f"Total: R$ {work_order.grand_total:.2f}\n"
+        f"Validade: {approval.expires_at.strftime('%d/%m/%Y %H:%M') if approval.expires_at else 'sem validade definida'}\n\n"
+        f"Acesse o link para aprovar ou recusar:\n{public_url}\n\n"
+        "Caso você não tenha solicitado este atendimento, ignore esta mensagem.\n"
+    )
+
+    console_message = (
+        "\n"
+        "================ APROVACAO DIGITAL - EMAIL DE TESTE ================\n"
+        f"Para: {recipient or '[cliente sem e-mail cadastrado]'}\n"
+        f"Assunto: {subject}\n"
+        f"Backend de e-mail: {settings.EMAIL_BACKEND}\n"
+        "--------------------------------------------------------------------\n"
+        f"{message}"
+        "====================================================================\n"
+    )
+    print(console_message, flush=True)
+    logger.warning(console_message)
+
+    if not recipient:
+        return {
+            "email_sent": False,
+            "email_to": "",
+            "email_backend": settings.EMAIL_BACKEND,
+            "console_logged": True,
+            "email_error": "Cliente sem e-mail cadastrado. O link foi gerado e impresso no console do backend, mas não foi enviado por e-mail.",
+        }
+
+    sent_count = send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [recipient], fail_silently=False)
+    return {
+        "email_sent": bool(sent_count),
+        "email_to": recipient,
+        "email_backend": settings.EMAIL_BACKEND,
+        "console_logged": True,
+        "email_error": "",
+    }
 
 
 class PublicLandingView(APIView):
@@ -156,6 +238,20 @@ class CustomerApprovalPublicView(APIView):
             description=f"Cliente {decision_label} digitalmente o documento {approval.document_type_label}.",
             data={"approval_id": approval.id, "token": str(approval.token), "decision": approval.status, "decision_name": approval.decision_name},
         )
+        target_status = WorkOrder.Status.APPROVED if approval.status == WorkOrderCustomerApproval.Status.APPROVED else WorkOrder.Status.REJECTED
+        try:
+            change_work_order_status(
+                approval.work_order,
+                target_status,
+                actor=None,
+                note=serializer.validated_data.get("notes", ""),
+                send_notifications=True,
+                source=SOURCE_SYSTEM,
+            )
+        except DjangoValidationError as exc:
+            raise drf_validation_from_django(exc) from exc
+        approval.refresh_from_db()
+        approval.work_order.refresh_from_db()
         return Response(WorkOrderCustomerApprovalPublicSerializer(approval).data)
 
 
@@ -279,7 +375,7 @@ class WorkshopDashboardView(APIView):
 
     def get(self, request):
         today = timezone.localdate()
-        open_statuses = [WorkOrder.Status.OPEN, WorkOrder.Status.DIAGNOSIS, WorkOrder.Status.AWAITING_APPROVAL, WorkOrder.Status.APPROVED, WorkOrder.Status.IN_PROGRESS, WorkOrder.Status.QUALITY_CHECK, WorkOrder.Status.READY]
+        open_statuses = [WorkOrder.Status.OPEN, WorkOrder.Status.DIAGNOSIS, WorkOrder.Status.AWAITING_APPROVAL, WorkOrder.Status.WAITING_PARTS, WorkOrder.Status.APPROVED, WorkOrder.Status.IN_PROGRESS, WorkOrder.Status.QUALITY_CHECK, WorkOrder.Status.READY]
         month_start = today.replace(day=1)
         paid_month = WorkOrderPayment.objects.filter(paid_at__date__gte=month_start).aggregate(total=Sum("amount"))["total"] or 0
         return Response({
@@ -287,7 +383,7 @@ class WorkshopDashboardView(APIView):
                 "vehicles": Vehicle.objects.count(),
                 "parts": Part.objects.count(),
                 "open_work_orders": WorkOrder.objects.filter(status__in=open_statuses).count(),
-                "awaiting_approval": WorkOrder.objects.filter(status=WorkOrder.Status.AWAITING_APPROVAL).count(),
+                "awaiting_approval": WorkOrder.objects.filter(status__in=[WorkOrder.Status.AWAITING_APPROVAL, WorkOrder.Status.WAITING_PARTS]).count(),
                 "in_progress": WorkOrder.objects.filter(status=WorkOrder.Status.IN_PROGRESS).count(),
                 "ready": WorkOrder.objects.filter(status=WorkOrder.Status.READY).count(),
                 "delivered_today": WorkOrder.objects.filter(status=WorkOrder.Status.DELIVERED, delivered_at__date=today).count(),
@@ -320,7 +416,7 @@ class RoleDashboardView(APIView):
 
         today = timezone.localdate()
         month_start = today.replace(day=1)
-        open_statuses = [WorkOrder.Status.OPEN, WorkOrder.Status.DIAGNOSIS, WorkOrder.Status.AWAITING_APPROVAL, WorkOrder.Status.APPROVED, WorkOrder.Status.IN_PROGRESS, WorkOrder.Status.QUALITY_CHECK, WorkOrder.Status.READY]
+        open_statuses = [WorkOrder.Status.OPEN, WorkOrder.Status.DIAGNOSIS, WorkOrder.Status.AWAITING_APPROVAL, WorkOrder.Status.WAITING_PARTS, WorkOrder.Status.APPROVED, WorkOrder.Status.IN_PROGRESS, WorkOrder.Status.QUALITY_CHECK, WorkOrder.Status.READY]
         base = {
             "role": role,
             "counts": {},
@@ -334,7 +430,7 @@ class RoleDashboardView(APIView):
                 "contacts": Contact.objects.count(),
                 "vehicles": Vehicle.objects.count(),
                 "open_work_orders": WorkOrder.objects.filter(status__in=open_statuses).count(),
-                "awaiting_approval": WorkOrder.objects.filter(status=WorkOrder.Status.AWAITING_APPROVAL).count(),
+                "awaiting_approval": WorkOrder.objects.filter(status__in=[WorkOrder.Status.AWAITING_APPROVAL, WorkOrder.Status.WAITING_PARTS]).count(),
                 "delivered_today": WorkOrder.objects.filter(status=WorkOrder.Status.DELIVERED, delivered_at__date=today).count(),
             })
         if role in {"dono", "administrativo", "estoque"}:
@@ -377,32 +473,65 @@ class TechnicalDashboardView(APIView):
     permission_classes = [HasViewPermission]
     permission_code = ["dashboard.technical", "technical.dashboard"]
 
-    def _base_queryset(self, request):
-        qs = WorkOrderService.objects.select_related("work_order", "work_order__customer", "work_order__vehicle", "service", "technician").exclude(work_order__status__in=[WorkOrder.Status.DELIVERED, WorkOrder.Status.CANCELLED])
+    def _technicians(self):
+        return User.objects.select_related("profile").filter(is_active=True, profile__role=ROLE_TECHNICIAN).order_by("first_name", "last_name", "username")
+
+    def _selected_technician(self, request):
+        technician_id = request.query_params.get("technician")
         if get_user_role(request.user) == ROLE_TECHNICIAN:
-            qs = qs.filter(Q(technician=request.user) | Q(work_order__assigned_to=request.user))
+            return request.user
+        if technician_id:
+            try:
+                return self._technicians().get(pk=technician_id)
+            except User.DoesNotExist:
+                raise ValidationError({"technician": "Técnico informado não foi encontrado."})
+        return None
+
+    def _order_queryset(self, request):
+        qs = WorkOrder.objects.select_related("customer", "vehicle", "assigned_to").prefetch_related("services__technician").exclude(status__in=[WorkOrder.Status.DELIVERED, WorkOrder.Status.CANCELLED])
+        technician = self._selected_technician(request)
+        if technician:
+            qs = qs.filter(Q(assigned_to=technician) | Q(services__technician=technician))
         specialty = request.query_params.get("specialty")
         if specialty:
-            qs = qs.filter(technician__profile__technician_specialty=specialty)
+            qs = qs.filter(Q(assigned_to__profile__technician_specialty=specialty) | Q(services__technician__profile__technician_specialty=specialty))
         return qs.distinct()
 
+    def _serialized_orders(self, queryset, request, limit=80):
+        return WorkOrderListSerializer(queryset[:limit], many=True, context={"request": request}).data
+
     def get(self, request):
-        qs = self._base_queryset(request)
-        pending = qs.filter(status__in=[WorkOrderService.Status.PENDING, WorkOrderService.Status.APPROVED]).order_by("work_order__priority", "work_order__promised_at", "id")[:50]
-        in_progress = qs.filter(status=WorkOrderService.Status.IN_PROGRESS).order_by("started_at", "id")[:50]
-        done = qs.filter(status=WorkOrderService.Status.DONE).order_by("-finished_at", "-updated_at")[:50]
+        qs = self._order_queryset(request)
+        queue_qs = qs.filter(status__in=[WorkOrder.Status.OPEN, WorkOrder.Status.APPROVED]).order_by("priority", "promised_at", "id")
+        active_qs = qs.filter(status__in=[WorkOrder.Status.DIAGNOSIS, WorkOrder.Status.IN_PROGRESS]).order_by("priority", "promised_at", "id")
+        waiting_parts_qs = qs.filter(status=WorkOrder.Status.WAITING_PARTS).order_by("priority", "promised_at", "id")
+        done_qs = qs.filter(status__in=[WorkOrder.Status.AWAITING_APPROVAL, WorkOrder.Status.QUALITY_CHECK, WorkOrder.Status.READY]).order_by("-updated_at", "-completed_at", "id")
         today = timezone.localdate()
+        selected = self._selected_technician(request)
+        technicians = [
+            {
+                "id": user.id,
+                "name": user.get_full_name() or user.username,
+                "email": user.email,
+                "specialty": getattr(getattr(user, "profile", None), "technician_specialty", ""),
+                "specialty_label": getattr(getattr(user, "profile", None), "technician_specialty_label", ""),
+            }
+            for user in self._technicians()
+        ]
         return Response({
+            "selected_technician": selected.id if selected else "",
+            "technicians": technicians,
             "counts": {
-                "pending": qs.filter(status__in=[WorkOrderService.Status.PENDING, WorkOrderService.Status.APPROVED]).count(),
-                "in_progress": qs.filter(status=WorkOrderService.Status.IN_PROGRESS).count(),
-                "done_today": qs.filter(status=WorkOrderService.Status.DONE, finished_at__date=today).count(),
-                "quality_pending": qs.filter(status=WorkOrderService.Status.DONE, needs_quality_check=True, quality_checked_at__isnull=True).count(),
-                "late_promised_orders": WorkOrder.objects.filter(status__in=[WorkOrder.Status.OPEN, WorkOrder.Status.DIAGNOSIS, WorkOrder.Status.APPROVED, WorkOrder.Status.IN_PROGRESS, WorkOrder.Status.QUALITY_CHECK], promised_at__date__lt=today).count(),
+                "queue": queue_qs.count(),
+                "active": active_qs.count(),
+                "waiting_parts": waiting_parts_qs.count(),
+                "done": done_qs.count(),
+                "late_promised_orders": qs.filter(status__in=[WorkOrder.Status.OPEN, WorkOrder.Status.DIAGNOSIS, WorkOrder.Status.WAITING_PARTS, WorkOrder.Status.APPROVED, WorkOrder.Status.IN_PROGRESS, WorkOrder.Status.QUALITY_CHECK], promised_at__date__lt=today).count(),
             },
-            "pending_services": WorkOrderServiceSerializer(pending, many=True).data,
-            "in_progress_services": WorkOrderServiceSerializer(in_progress, many=True).data,
-            "done_services": WorkOrderServiceSerializer(done, many=True).data,
+            "queue_orders": self._serialized_orders(queue_qs, request),
+            "active_orders": self._serialized_orders(active_qs, request),
+            "waiting_parts_orders": self._serialized_orders(waiting_parts_qs, request),
+            "done_orders": self._serialized_orders(done_qs, request),
         })
 
 
@@ -590,7 +719,7 @@ class PartStockMovementViewSet(viewsets.ReadOnlyModelViewSet):
 
 class WorkOrderViewSet(viewsets.ModelViewSet):
     permission_classes = [HasViewPermission]
-    permission_code_map = {"read": "work_orders.view", "create": "work_orders.create", "update": "work_orders.edit", "partial_update": "work_orders.edit", "destroy": "work_orders.edit", "change_status": "work_orders.status", "send_message": "messages.send", "recalculate": ["work_orders.edit", "payments.manage"], "trigger_notifications": "messages.send", "document": "work_orders.view", "customer_approvals": "work_orders.view", "create_customer_approval": "work_orders.edit", "delivery_signature": "work_orders.view", "create_delivery_signature": "work_orders.edit", "delivery_receipt": "work_orders.view"}
+    permission_code_map = {"read": "work_orders.view", "create": "work_orders.create", "update": "work_orders.edit", "partial_update": "work_orders.edit", "destroy": "work_orders.edit", "change_status": "work_orders.status", "technical_action": "technical.execute", "send_message": "messages.send", "recalculate": ["work_orders.edit", "payments.manage"], "trigger_notifications": "messages.send", "document": "work_orders.view", "customer_approvals": "work_orders.view", "create_customer_approval": "work_orders.edit", "delivery_signature": "work_orders.view", "create_delivery_signature": "work_orders.edit", "delivery_receipt": "work_orders.view"}
     queryset = WorkOrder.objects.select_related("customer", "vehicle", "assigned_to", "created_by", "updated_by").prefetch_related("services__service", "services__source_package", "services__checklist_items", "parts__part", "payments", "photos__uploaded_by", "events__actor", "messages__template", "messages__message_log")
 
     def get_serializer_class(self):
@@ -629,8 +758,22 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
         record_event(work_order, WorkOrderEvent.EventType.CREATED, actor=self.request.user, description="Ordem de servico criada.", new_status=work_order.status)
 
     def perform_update(self, serializer):
+        instance = self.get_object()
+        old_status = instance.status
         work_order = serializer.save(updated_by=self.request.user)
-        record_event(work_order, WorkOrderEvent.EventType.UPDATED, actor=self.request.user, description="Ordem de servico atualizada.")
+        status_changed = old_status != work_order.status
+        if status_changed:
+            record_event(
+                work_order,
+                WorkOrderEvent.EventType.STATUS_CHANGED,
+                actor=self.request.user,
+                description=f"Status alterado para {work_order.status_label} pela edicao da OS.",
+                old_status=old_status,
+                new_status=work_order.status,
+            )
+            trigger_status_notifications(work_order, actor=self.request.user)
+        else:
+            record_event(work_order, WorkOrderEvent.EventType.UPDATED, actor=self.request.user, description="Ordem de servico atualizada.")
 
     @action(detail=True, methods=["post"])
     def change_status(self, request, pk=None):
@@ -641,6 +784,23 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
         except DjangoValidationError as exc:
             raise drf_validation_from_django(exc) from exc
         return Response({"work_order": WorkOrderDetailSerializer(updated).data, "work_order_message_ids": message_ids})
+
+    @action(detail=True, methods=["post"], url_path="technical-action")
+    def technical_action(self, request, pk=None):
+        action_name = request.data.get("action")
+        note = request.data.get("note", "")
+        try:
+            updated, message_ids = technical_move_work_order(
+                self.get_object(),
+                action_name,
+                actor=request.user,
+                note=note,
+                send_notifications=request.data.get("send_notifications", True) is not False,
+                diagnosis_description=request.data.get("diagnosis_description", request.data.get("diagnosis", "")),
+            )
+        except DjangoValidationError as exc:
+            raise drf_validation_from_django(exc) from exc
+        return Response({"work_order": WorkOrderDetailSerializer(updated, context={"request": request}).data, "work_order_message_ids": message_ids})
 
     @action(detail=True, methods=["post"])
     def send_message(self, request, pk=None):
@@ -682,20 +842,40 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
             requested_by=request.user,
             expires_at=timezone.now() + timezone.timedelta(days=expires_days),
         )
-        base_url = request.data.get("frontend_base_url") or getattr(request, "frontend_base_url", "") or ""
-        if not base_url:
-            from django.conf import settings
-            base_url = getattr(settings, "FRONTEND_BASE_URL", "") or request.build_absolute_uri("/").rstrip("/api/")
-        public_url = f"{str(base_url).rstrip('/')}{approval.public_url_path}"
+        public_url = build_customer_approval_public_url(request, approval)
+        email_info = {}
+        try:
+            email_info = send_customer_approval_email(approval, public_url)
+        except Exception as exc:  # noqa: BLE001 - retorna erro claro sem perder o link gerado
+            email_info = {
+                "email_sent": False,
+                "email_to": approval.customer_email_snapshot or "",
+                "email_backend": settings.EMAIL_BACKEND,
+                "console_logged": True,
+                "email_error": f"Link gerado e impresso no console do backend, mas houve falha ao enviar e-mail: {exc}",
+            }
+
+        event_description = f"Link de aprovação digital gerado para {approval.document_type_label}."
+        if email_info.get("email_sent"):
+            event_description += f" E-mail enviado para {email_info.get('email_to')}."
+        elif email_info.get("email_error"):
+            event_description += f" {email_info.get('email_error')}"
         record_event(
             work_order,
             WorkOrderEvent.EventType.UPDATED,
             actor=request.user,
-            description=f"Link de aprovação digital gerado para {approval.document_type_label}.",
-            data={"approval_id": approval.id, "document_type": approval.document_type, "expires_at": approval.expires_at.isoformat() if approval.expires_at else None},
+            description=event_description,
+            data={
+                "approval_id": approval.id,
+                "document_type": approval.document_type,
+                "expires_at": approval.expires_at.isoformat() if approval.expires_at else None,
+                "public_url": public_url,
+                **email_info,
+            },
         )
         data = WorkOrderCustomerApprovalSerializer(approval).data
         data["public_url"] = public_url
+        data.update(email_info)
         return Response(data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"])
@@ -975,3 +1155,18 @@ class WorkOrderNotificationRuleViewSet(viewsets.ModelViewSet):
         if search:
             qs = qs.filter(Q(name__icontains=search) | Q(template__name__icontains=search))
         return qs
+
+    def list(self, request, *args, **kwargs):
+        try:
+            return super().list(request, *args, **kwargs)
+        except OperationalError as exc:
+            message = str(exc)
+            if "workshop_workordernotificationrule" in message or "workshop_workordermessage" in message:
+                return Response(
+                    {
+                        "detail": "O banco de dados está desatualizado para as notificações de OS. Execute as migrações do backend: python manage.py migrate.",
+                        "technical_detail": message,
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            raise

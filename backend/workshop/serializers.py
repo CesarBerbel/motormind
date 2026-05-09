@@ -9,7 +9,7 @@ from django.core.files.base import ContentFile
 from rest_framework import serializers
 
 from messaging.models import Contact, MessageTemplate
-from messaging.serializers import ContactSerializer, MessageLogSerializer, format_cep, format_cpf_cnpj, normalize_br_phone_e164
+from messaging.serializers import ContactSerializer, MessageLogSerializer, format_cep, format_cpf_cnpj, normalize_br_phone_e164, only_digits
 
 from .models import (
     GeneralCategory,
@@ -817,7 +817,7 @@ class WorkOrderMessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = WorkOrderMessage
-        fields = ["id", "work_order", "trigger_type", "trigger_status", "channel", "template", "template_name", "notification_rule", "message_log", "message_log_status", "message_log_detail", "status", "error_message", "created_by_name", "created_at"]
+        fields = ["id", "work_order", "trigger_type", "trigger_status", "channel", "recipient_target", "template", "template_name", "notification_rule", "message_log", "message_log_status", "message_log_detail", "status", "error_message", "created_by_name", "created_at"]
         read_only_fields = fields
 
     def get_created_by_name(self, obj):
@@ -830,7 +830,7 @@ class WorkOrderNotificationRuleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = WorkOrderNotificationRule
-        fields = ["id", "name", "trigger_status", "channel", "template", "template_id", "template_name", "is_active", "send_once_per_status", "created_at", "updated_at"]
+        fields = ["id", "name", "trigger_status", "channel", "template", "template_id", "template_name", "recipient_target", "is_active", "send_once_per_status", "created_at", "updated_at"]
         read_only_fields = ["id", "template", "template_name", "created_at", "updated_at"]
 
     def validate(self, attrs):
@@ -1081,8 +1081,23 @@ class WorkOrderCustomerApprovalCreateSerializer(serializers.Serializer):
 class WorkOrderCustomerApprovalDecisionSerializer(serializers.Serializer):
     decision = serializers.ChoiceField(choices=[("approved", "Aprovar"), ("rejected", "Recusar")])
     name = serializers.CharField(required=False, allow_blank=True, max_length=180)
-    document = serializers.CharField(required=False, allow_blank=True, max_length=30)
-    notes = serializers.CharField(required=False, allow_blank=True)
+    document = serializers.CharField(required=True, allow_blank=False, max_length=30)
+    notes = serializers.CharField(required=True, allow_blank=False)
+
+    def validate_document(self, value):
+        digits = only_digits(value)
+        if len(digits) not in (11, 14):
+            raise serializers.ValidationError("Informe um CPF com 11 dígitos ou CNPJ com 14 dígitos.")
+        return format_cpf_cnpj(digits)
+
+    def validate_notes(self, value):
+        value = (value or "").strip()
+        if not value:
+            raise serializers.ValidationError("Informe uma observação para registrar a decisão.")
+        return value
+
+    def validate_name(self, value):
+        return (value or "").strip()
 
 
 class WorkOrderCustomerApprovalPublicSerializer(serializers.ModelSerializer):

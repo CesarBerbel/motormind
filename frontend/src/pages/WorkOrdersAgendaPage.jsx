@@ -10,7 +10,7 @@ import SearchAutocompleteInput from "../components/SearchAutocompleteInput";
 import StatusBadge from "../components/StatusBadge";
 import { money, priorities, workOrderStatuses } from "../workshopOptions";
 
-const FINAL_STATUSES = new Set(["delivered", "cancelled"]);
+const FINAL_STATUSES = new Set(["delivered", "rejected", "cancelled"]);
 const VIEW_MODES = [
   ["day", "Dia"],
   ["week", "Semana"],

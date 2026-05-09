@@ -37,6 +37,7 @@ class TransitionRule:
 SOURCE_MANUAL = "manual"
 SOURCE_TECHNICAL_START = "technical_start"
 SOURCE_TECHNICAL_COMPLETE = "technical_complete"
+SOURCE_TECHNICAL_WAITING_PARTS = "technical_waiting_parts"
 SOURCE_QUALITY_REWORK = "quality_rework"
 SOURCE_SYSTEM = "system"
 
@@ -71,8 +72,8 @@ WORK_ORDER_STATE_GRAPH: dict[str, tuple[TransitionRule, ...]] = {
             target=WorkOrder.Status.DIAGNOSIS,
             label="Enviar para diagnóstico",
             description="Coloca a OS na etapa técnica inicial de diagnóstico.",
-            roles=ATTENDANCE_ROLES,
-            sources=frozenset({SOURCE_MANUAL, SOURCE_SYSTEM}),
+            roles=ATTENDANCE_ROLES | TECHNICAL_ROLES,
+            sources=frozenset({SOURCE_MANUAL, SOURCE_TECHNICAL_START, SOURCE_SYSTEM}),
         ),
         TransitionRule(
             target=WorkOrder.Status.AWAITING_APPROVAL,
@@ -80,6 +81,13 @@ WORK_ORDER_STATE_GRAPH: dict[str, tuple[TransitionRule, ...]] = {
             description="Marca a OS como aguardando aprovação do cliente.",
             roles=ATTENDANCE_ROLES,
             sources=frozenset({SOURCE_MANUAL, SOURCE_SYSTEM}),
+        ),
+        TransitionRule(
+            target=WorkOrder.Status.WAITING_PARTS,
+            label="Aguardar peça",
+            description="Pausa a OS aberta enquanto uma peça necessária é separada ou comprada.",
+            roles=TECHNICAL_ROLES,
+            sources=frozenset({SOURCE_MANUAL, SOURCE_TECHNICAL_WAITING_PARTS, SOURCE_SYSTEM}),
         ),
         TransitionRule(
             target=WorkOrder.Status.CANCELLED,
@@ -95,8 +103,8 @@ WORK_ORDER_STATE_GRAPH: dict[str, tuple[TransitionRule, ...]] = {
             target=WorkOrder.Status.AWAITING_APPROVAL,
             label="Enviar orçamento para aprovação",
             description="Finaliza o diagnóstico e envia o orçamento para o cliente aprovar.",
-            roles=ATTENDANCE_ROLES,
-            sources=frozenset({SOURCE_MANUAL, SOURCE_SYSTEM}),
+            roles=ATTENDANCE_ROLES | TECHNICAL_ROLES,
+            sources=frozenset({SOURCE_MANUAL, SOURCE_TECHNICAL_COMPLETE, SOURCE_SYSTEM}),
         ),
         TransitionRule(
             target=WorkOrder.Status.APPROVED,
@@ -104,6 +112,13 @@ WORK_ORDER_STATE_GRAPH: dict[str, tuple[TransitionRule, ...]] = {
             description="Aprova a OS diretamente quando o cliente já autorizou o serviço.",
             roles=ATTENDANCE_ROLES,
             sources=frozenset({SOURCE_MANUAL, SOURCE_SYSTEM}),
+        ),
+        TransitionRule(
+            target=WorkOrder.Status.WAITING_PARTS,
+            label="Aguardar peça",
+            description="Pausa o diagnóstico enquanto uma peça necessária é separada ou comprada.",
+            roles=TECHNICAL_ROLES,
+            sources=frozenset({SOURCE_MANUAL, SOURCE_TECHNICAL_WAITING_PARTS, SOURCE_SYSTEM}),
         ),
         TransitionRule(
             target=WorkOrder.Status.CANCELLED,
@@ -131,10 +146,42 @@ WORK_ORDER_STATE_GRAPH: dict[str, tuple[TransitionRule, ...]] = {
             sources=frozenset({SOURCE_MANUAL, SOURCE_SYSTEM}),
         ),
         TransitionRule(
+            target=WorkOrder.Status.REJECTED,
+            label="Registrar recusa do cliente",
+            description="Marca a OS como recusada porque o cliente não aprovou o orçamento.",
+            roles=ATTENDANCE_ROLES,
+            sources=frozenset({SOURCE_MANUAL, SOURCE_SYSTEM}),
+            requires_note=True,
+        ),
+        TransitionRule(
             target=WorkOrder.Status.CANCELLED,
-            label="Cancelar por reprovação/desistência",
-            description="Cancela a OS porque o cliente não aprovou ou desistiu.",
+            label="Cancelar por desistência operacional",
+            description="Cancela a OS sem registrar recusa formal do cliente.",
             roles=CANCELLATION_ROLES,
+            sources=frozenset({SOURCE_MANUAL, SOURCE_SYSTEM}),
+            requires_note=True,
+        ),
+    ),
+    WorkOrder.Status.WAITING_PARTS: (
+        TransitionRule(
+            target=WorkOrder.Status.DIAGNOSIS,
+            label="Retomar diagnóstico",
+            description="Retoma uma OS que estava aguardando peça na etapa de diagnóstico.",
+            roles=TECHNICAL_ROLES,
+            sources=frozenset({SOURCE_MANUAL, SOURCE_TECHNICAL_START, SOURCE_SYSTEM}),
+        ),
+        TransitionRule(
+            target=WorkOrder.Status.IN_PROGRESS,
+            label="Retomar execução",
+            description="Retoma uma OS aprovada que estava aguardando peça para execução.",
+            roles=TECHNICAL_ROLES,
+            sources=frozenset({SOURCE_MANUAL, SOURCE_TECHNICAL_START, SOURCE_SYSTEM}),
+        ),
+        TransitionRule(
+            target=WorkOrder.Status.CANCELLED,
+            label="Cancelar aguardando peça",
+            description="Cancela uma OS pausada por falta de peça. Use somente para exceções operacionais.",
+            roles=ADMINISTRATIVE_ROLES,
             sources=frozenset({SOURCE_MANUAL, SOURCE_SYSTEM}),
             requires_note=True,
         ),
@@ -146,6 +193,13 @@ WORK_ORDER_STATE_GRAPH: dict[str, tuple[TransitionRule, ...]] = {
             description="Libera a OS aprovada para execução técnica.",
             roles=TECHNICAL_ROLES,
             sources=frozenset({SOURCE_MANUAL, SOURCE_TECHNICAL_START, SOURCE_SYSTEM}),
+        ),
+        TransitionRule(
+            target=WorkOrder.Status.WAITING_PARTS,
+            label="Aguardar peça",
+            description="Pausa uma OS aprovada enquanto uma peça necessária é separada ou comprada.",
+            roles=TECHNICAL_ROLES,
+            sources=frozenset({SOURCE_MANUAL, SOURCE_TECHNICAL_WAITING_PARTS, SOURCE_SYSTEM}),
         ),
         TransitionRule(
             target=WorkOrder.Status.CANCELLED,
@@ -163,6 +217,13 @@ WORK_ORDER_STATE_GRAPH: dict[str, tuple[TransitionRule, ...]] = {
             description="Envia a OS executada para conferência de qualidade.",
             roles=TECHNICAL_ROLES,
             sources=frozenset({SOURCE_MANUAL, SOURCE_TECHNICAL_COMPLETE, SOURCE_SYSTEM}),
+        ),
+        TransitionRule(
+            target=WorkOrder.Status.WAITING_PARTS,
+            label="Aguardar peça",
+            description="Pausa a execução técnica enquanto uma peça necessária é separada ou comprada.",
+            roles=TECHNICAL_ROLES,
+            sources=frozenset({SOURCE_MANUAL, SOURCE_TECHNICAL_WAITING_PARTS, SOURCE_SYSTEM}),
         ),
         TransitionRule(
             target=WorkOrder.Status.CANCELLED,
@@ -216,10 +277,11 @@ WORK_ORDER_STATE_GRAPH: dict[str, tuple[TransitionRule, ...]] = {
         ),
     ),
     WorkOrder.Status.DELIVERED: (),
+    WorkOrder.Status.REJECTED: (),
     WorkOrder.Status.CANCELLED: (),
 }
 
-TERMINAL_STATUSES = frozenset({WorkOrder.Status.DELIVERED, WorkOrder.Status.CANCELLED})
+TERMINAL_STATUSES = frozenset({WorkOrder.Status.DELIVERED, WorkOrder.Status.REJECTED, WorkOrder.Status.CANCELLED})
 
 
 STATE_ORDER = {
@@ -227,11 +289,13 @@ STATE_ORDER = {
     WorkOrder.Status.OPEN: 20,
     WorkOrder.Status.DIAGNOSIS: 30,
     WorkOrder.Status.AWAITING_APPROVAL: 40,
+    WorkOrder.Status.WAITING_PARTS: 45,
     WorkOrder.Status.APPROVED: 50,
     WorkOrder.Status.IN_PROGRESS: 60,
     WorkOrder.Status.QUALITY_CHECK: 70,
     WorkOrder.Status.READY: 80,
     WorkOrder.Status.DELIVERED: 90,
+    WorkOrder.Status.REJECTED: 95,
     WorkOrder.Status.CANCELLED: 100,
 }
 
@@ -241,6 +305,7 @@ INVALID_REGRESSION_HINTS = {
     (WorkOrder.Status.IN_PROGRESS, WorkOrder.Status.DIAGNOSIS): "OS em execução não pode voltar para diagnóstico. Registre complemento técnico nos serviços ou use Conferência/Reprovação.",
     (WorkOrder.Status.QUALITY_CHECK, WorkOrder.Status.DIAGNOSIS): "OS em conferência não pode voltar para diagnóstico. A devolução válida é para Em execução.",
     (WorkOrder.Status.READY, WorkOrder.Status.DIAGNOSIS): "OS pronta não pode voltar para diagnóstico. Reabra a conferência antes da entrega, se necessário.",
+    (WorkOrder.Status.WAITING_PARTS, WorkOrder.Status.AWAITING_APPROVAL): "OS aguardando peça deve ser retomada antes de concluir o diagnóstico ou a execução.",
     (WorkOrder.Status.DELIVERED, WorkOrder.Status.DIAGNOSIS): "OS entregue é estado final e não pode voltar para diagnóstico.",
 }
 

@@ -9,7 +9,6 @@ from django.utils import timezone
 
 from .models import Automation, ChannelConfiguration, Contact, ContactGroup, MessageLog, MessageTemplate
 from .providers.base import WhatsAppProviderError
-from .providers.dummy import DummyWhatsAppProvider
 from .providers.whatsapp_meta import MetaWhatsAppProvider
 
 User = get_user_model()
@@ -170,13 +169,15 @@ def recipient_name(contact=None, recipient_user=None, raw=None):
 
 
 def get_whatsapp_provider(config=None):
-    provider = getattr(settings, "WHATSAPP_PROVIDER", "meta")
-    if provider == ChannelConfiguration.WhatsAppProvider.DUMMY:
-        return DummyWhatsAppProvider()
+    config = config or ChannelConfiguration.load()
+    if config.whatsapp_provider != ChannelConfiguration.WhatsAppProvider.META:
+        raise MessageDispatchError(
+            "WhatsApp Dummy/desenvolvimento foi removido. Configure o provedor Meta Cloud API no admin do Django."
+        )
     return MetaWhatsAppProvider(
-        access_token=getattr(settings, "WHATSAPP_ACCESS_TOKEN", ""),
-        phone_number_id=getattr(settings, "WHATSAPP_PHONE_NUMBER_ID", ""),
-        api_version=getattr(settings, "WHATSAPP_API_VERSION", "v24.0"),
+        access_token=config.whatsapp_access_token,
+        phone_number_id=config.whatsapp_phone_number_id,
+        api_version=config.whatsapp_api_version or "v24.0",
     )
 
 
@@ -249,11 +250,31 @@ def create_message_log(template, actor, contact=None, recipient_user=None, raw_e
     return log
 
 
+def print_email_debug_block(log, from_email):
+    """Always print a compact email preview in server logs before dispatch."""
+    print("\n" + "=" * 72, flush=True)
+    print("MENSAGERIA - EMAIL GERADO", flush=True)
+    print("=" * 72, flush=True)
+    print(f"Template: {getattr(log.template, 'name', '')}", flush=True)
+    print(f"Para: {log.to_email}", flush=True)
+    print(f"De: {from_email}", flush=True)
+    print(f"Assunto: {log.rendered_subject}", flush=True)
+    print(f"Backend: {settings.EMAIL_BACKEND}", flush=True)
+    print("-" * 72, flush=True)
+    print(log.rendered_text or "", flush=True)
+    if log.rendered_html:
+        print("-" * 72, flush=True)
+        print("HTML:", flush=True)
+        print(log.rendered_html, flush=True)
+    print("=" * 72 + "\n", flush=True)
+
+
 def send_email_log(log, config):
     validate_email_configuration(config)
     if not log.to_email:
         raise MessageDispatchError("Destinatário sem email.")
     from_email = config.default_from_email or settings.DEFAULT_FROM_EMAIL
+    print_email_debug_block(log, from_email)
     message = EmailMultiAlternatives(
         subject=log.rendered_subject,
         body=log.rendered_text,
@@ -263,21 +284,65 @@ def send_email_log(log, config):
     if log.rendered_html:
         message.attach_alternative(log.rendered_html, "text/html")
     sent_count = message.send(fail_silently=False)
+    if sent_count < 1:
+        raise MessageDispatchError(
+            "O backend de e-mail não confirmou envio para nenhum destinatário. "
+            "Verifique EMAIL_BACKEND/SMTP ou use console.EmailBackend em desenvolvimento."
+        )
     return {"sent_count": sent_count, "backend": settings.EMAIL_BACKEND}
 
 
+
+def print_whatsapp_debug_block(log, config, provider_response=None, skipped_reason=""):
+    print("\n" + "=" * 72, flush=True)
+    print("MENSAGERIA - WHATSAPP GERADO", flush=True)
+    print("=" * 72, flush=True)
+    print(f"Template: {getattr(log.template, 'name', '')}", flush=True)
+    print(f"Para: {log.to_phone}", flush=True)
+    print(f"Provider: {config.whatsapp_provider}", flush=True)
+    print(f"Phone Number ID: {config.whatsapp_phone_number_id or '[não configurado]'}", flush=True)
+    if skipped_reason:
+        print(f"Status: NÃO ENVIADO - {skipped_reason}", flush=True)
+    print("-" * 72, flush=True)
+    print(log.rendered_text or "", flush=True)
+    if provider_response:
+        print("-" * 72, flush=True)
+        print(f"Resposta do provedor: {provider_response}", flush=True)
+    print("=" * 72 + "\n", flush=True)
+
+
+def print_dispatch_failure_block(log, error_message):
+    print("\n" + "=" * 72, flush=True)
+    print("MENSAGERIA - FALHA NO ENVIO", flush=True)
+    print("=" * 72, flush=True)
+    print(f"Canal: {log.channel}", flush=True)
+    print(f"Template: {getattr(log.template, 'name', '')}", flush=True)
+    print(f"Para: {log.to_email or log.to_phone or log.recipient_name}", flush=True)
+    print(f"Erro: {error_message}", flush=True)
+    print("=" * 72 + "\n", flush=True)
+
 def send_whatsapp_log(log, config):
-    if not getattr(settings, "WHATSAPP_ENABLED", False):
-        raise MessageDispatchError("Canal de WhatsApp desativado no .env do backend.")
+    if not config.whatsapp_enabled:
+        raise MessageDispatchError("Canal de WhatsApp desativado nas configurações do admin do Django.")
     if not log.to_phone:
         raise MessageDispatchError("Destinatário sem telefone WhatsApp em E.164.")
+
+    if config.whatsapp_provider != ChannelConfiguration.WhatsAppProvider.META:
+        raise MessageDispatchError(
+            "WhatsApp Dummy/desenvolvimento foi removido. Configure o provedor Meta Cloud API no admin do Django."
+        )
+    if not config.whatsapp_access_token or not config.whatsapp_phone_number_id:
+        raise MessageDispatchError("Configure token e Phone Number ID do WhatsApp no admin do Django.")
     provider = get_whatsapp_provider(config)
-    response = provider.send_text(log.to_phone, log.rendered_text, preview_url=getattr(settings, "WHATSAPP_PREVIEW_URL", False))
+    response = provider.send_text(log.to_phone, log.rendered_text, preview_url=config.whatsapp_preview_url)
+    print_whatsapp_debug_block(log, config, provider_response=response)
     message_id = ""
     try:
         message_id = response.get("messages", [{}])[0].get("id", "")
     except (AttributeError, IndexError):
         message_id = ""
+    if not message_id:
+        raise MessageDispatchError(f"Meta Graph API não retornou ID da mensagem. Resposta: {response}")
     return {"provider_response": response, "message_id": message_id}
 
 
@@ -305,7 +370,9 @@ def send_message_log(log):
     except Exception as exc:
         log.status = MessageLog.Status.FAILED
         log.error_message = explain_dispatch_exception(exc)
-        log.save(update_fields=["status", "error_message", "updated_at"])
+        log.provider_response = {"error": log.error_message, "backend": getattr(settings, "EMAIL_BACKEND", ""), "channel": log.channel}
+        print_dispatch_failure_block(log, log.error_message)
+        log.save(update_fields=["status", "error_message", "provider_response", "updated_at"])
     return log
 
 

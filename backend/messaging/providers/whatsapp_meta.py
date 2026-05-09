@@ -10,6 +10,9 @@ class MetaWhatsAppProvider(BaseWhatsAppProvider):
         self.api_version = api_version
 
     def send_text(self, to_phone, body, preview_url=False):
+        to_phone_digits = "".join(ch for ch in (to_phone or "") if ch.isdigit())
+        if not to_phone_digits:
+            raise WhatsAppProviderError("Destinatário sem telefone válido para WhatsApp.")
         if not self.access_token:
             raise WhatsAppProviderError("WhatsApp access token não configurado.")
         if not self.phone_number_id:
@@ -21,7 +24,9 @@ class MetaWhatsAppProvider(BaseWhatsAppProvider):
         payload = {
             "messaging_product": "whatsapp",
             "recipient_type": "individual",
-            "to": to_phone,
+            # Meta Cloud API espera o destinatário somente com dígitos, sem o sinal '+'.
+            # O sistema armazena telefones em E.164 (+55..., +351...), então normalizamos aqui.
+            "to": to_phone_digits,
             "type": "text",
             "text": {"preview_url": bool(preview_url), "body": body},
         }

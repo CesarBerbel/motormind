@@ -6,6 +6,7 @@ import api, { apiError, results } from "../api/client";
 import AreaTabs from "../components/AreaTabs";
 import ErrorAlert from "../components/ErrorAlert";
 import SystemToast from "../components/SystemToast";
+import AIAssistButton from "../components/AIAssistButton";
 import FormTabs, { TabPanel } from "../components/FormTabs";
 import TabbedFormFooter, { InlineTabbedFormFooter } from "../components/TabbedFormFooter";
 import MoneyInput from "../components/MoneyInput";
@@ -773,13 +774,21 @@ export default function WorkOrderFormPage({ embedded = false }) {
           <TabPanel activeKey={activeTab} eventKey="notes">
             <Row className="g-3">
               {[
-                ["complaint", "Relato do cliente"],
-                ["diagnosis", "Diagnóstico"],
-                ["solution", "Solução"],
-                ["internal_notes", "Observações internas"],
-                ["customer_notes", "Observações para o cliente"],
-              ].map(([key, label]) => <Col md={key === "solution" ? 12 : 6} key={key}>
-                <Form.Label>{label}</Form.Label>
+                ["complaint", "Relato do cliente", "customer_report"],
+                ["diagnosis", "Diagnóstico", "diagnosis"],
+                ["solution", "Solução / serviço feito", "service_done"],
+                ["internal_notes", "Observações internas", "service_done"],
+                ["customer_notes", "Observações para o cliente", "email"],
+              ].map(([key, label, aiTask]) => <Col md={key === "solution" ? 12 : 6} key={key}>
+                <div className="d-flex align-items-center justify-content-between gap-2 mb-1">
+                  <Form.Label className="mb-0">{label}</Form.Label>
+                  <AIAssistButton
+                    task={aiTask}
+                    value={form[key]}
+                    context={`OS ${form.number || ""} | relato: ${form.complaint || ""} | diagnostico: ${form.diagnosis || ""} | solucao: ${form.solution || ""}`}
+                    onApply={(text) => setForm((current) => ({ ...current, [key]: text }))}
+                  />
+                </div>
                 <Form.Control as="textarea" rows={3} value={form[key]} onChange={(event) => setForm({ ...form, [key]: event.target.value })}/>
               </Col>)}
             </Row>

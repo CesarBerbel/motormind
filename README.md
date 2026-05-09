@@ -380,3 +380,42 @@ Após atualizar o backend, execute:
 ```bash
 python manage.py migrate
 ```
+
+
+## Aprovação digital por e-mail
+
+Em desenvolvimento, mantenha `EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend` no `backend/.env`. Ao gerar a aprovação digital de uma OS, o backend envia o link por e-mail e o conteúdo aparece no terminal/log onde `python manage.py runserver` está rodando. Configure `FRONTEND_BASE_URL=http://localhost:5173` para que o link público aponte para o frontend local.
+
+Para facilitar a homologação, o backend também imprime explicitamente o conteúdo do e-mail no console com o marcador:
+
+```text
+APROVACAO DIGITAL - EMAIL DE TESTE
+```
+
+Se estiver usando Docker, veja esse conteúdo com:
+
+```bash
+docker compose logs -f backend
+```
+
+## Assistente de IA
+
+O sistema possui um módulo de apoio à escrita para relato do cliente, diagnóstico, serviço realizado e textos de e-mail/WhatsApp.
+
+Configuração:
+
+1. Rode as migrations: `cd backend && python manage.py migrate`.
+2. Acesse o admin do Django.
+3. Abra **Assistente de IA > Configurações de IA**.
+4. Configure OpenAI e/ou Gemini com API key, modelo, provedor ativo e marque qual será o padrão.
+5. No sistema, use o botão **IA** nos campos de OS, Bancada Técnica e Templates.
+
+As chaves da OpenAI/Gemini não ficam no `.env`; ficam somente no admin do Django.
+
+## Módulo de IA - prompts configuráveis
+
+As chaves e o provedor de IA são configurados somente no admin do Django em **Assistente de IA > Configurações de IA**. O usuário comum não escolhe OpenAI/Gemini nas telas; o sistema usa o provedor ativo/padrão do admin.
+
+Também é possível cadastrar múltiplos prompts em **Assistente de IA > Prompts de IA**. Cada prompt pode ser associado a uma finalidade, como relato do cliente, diagnóstico, serviço realizado, email, WhatsApp ou templates. Nas telas, o usuário escolhe apenas o prompt que deseja aplicar.
+
+Se a resposta sair cortada, aumente o campo **max_tokens** na configuração de IA do admin. O padrão novo é 2500 tokens.

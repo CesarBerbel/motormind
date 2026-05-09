@@ -102,3 +102,50 @@ class WorkOrderApiFlowTests(APITestCase):
         self.assertEqual(WorkshopService.objects.count(), 1)
         self.assertEqual(Part.objects.count(), 1)
         self.assertEqual(WorkOrder.objects.count(), 1)
+
+@override_settings(ALLOWED_HOSTS=["testserver", "localhost", "127.0.0.1"])
+class TechnicalWorkbenchDiagnosisTests(APITestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            username="owner-technical",
+            email="owner-technical@example.com",
+            password="senha-forte-123",
+        )
+        self.client.force_authenticate(self.user)
+        self.customer = Contact.objects.create(
+            person_type="individual",
+            first_name="Cliente",
+            last_name="Diagnóstico",
+            email="cliente-diagnostico@example.com",
+            phone_e164="+5511988887777",
+        )
+
+    def test_technical_complete_diagnosis_requires_description_and_saves_it(self):
+        order = WorkOrder.objects.create(
+            customer=self.customer,
+            title="Falha intermitente na partida",
+            complaint="Motor demora a pegar pela manhã.",
+            status=WorkOrder.Status.DIAGNOSIS,
+            assigned_to=self.user,
+        )
+
+        missing_response = self.client.post(
+            f"/api/workshop/work-orders/{order.id}/technical-action/",
+            {"action": "complete"},
+            format="json",
+        )
+        self.assertEqual(missing_response.status_code, status.HTTP_400_BAD_REQUEST, missing_response.data)
+        order.refresh_from_db()
+        self.assertEqual(order.status, WorkOrder.Status.DIAGNOSIS)
+        self.assertEqual(order.diagnosis, "")
+
+        diagnosis_description = "Bateria com baixa capacidade de partida e zinabre nos terminais."
+        complete_response = self.client.post(
+            f"/api/workshop/work-orders/{order.id}/technical-action/",
+            {"action": "complete", "diagnosis_description": diagnosis_description},
+            format="json",
+        )
+        self.assertEqual(complete_response.status_code, status.HTTP_200_OK, complete_response.data)
+        order.refresh_from_db()
+        self.assertEqual(order.status, WorkOrder.Status.AWAITING_APPROVAL)
+        self.assertEqual(order.diagnosis, diagnosis_description)

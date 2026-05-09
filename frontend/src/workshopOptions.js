@@ -1,5 +1,5 @@
-export const workOrderStatuses = [["draft", "Rascunho"], ["open", "Aberta"], ["diagnosis", "Diagnóstico"], ["awaiting_approval", "Aguardando aprovação"], ["approved", "Aprovada"], ["in_progress", "Em execução"], ["quality_check", "Conferência"], ["ready", "Pronta para entrega"], ["delivered", "Entregue"], ["cancelled", "Cancelada"]];
-export const kanbanWorkOrderStatuses = workOrderStatuses.filter(([value]) => !["draft", "delivered", "cancelled"].includes(value));
+export const workOrderStatuses = [["draft", "Rascunho"], ["open", "Aberta"], ["diagnosis", "Diagnóstico"], ["awaiting_approval", "Aguardando aprovação"], ["waiting_parts", "Aguardando peça"], ["approved", "Aprovada"], ["in_progress", "Em execução"], ["quality_check", "Conferência"], ["ready", "Pronta para entrega"], ["delivered", "Entregue"], ["rejected", "Recusada"], ["cancelled", "Cancelada"]];
+export const kanbanWorkOrderStatuses = workOrderStatuses.filter(([value]) => !["draft", "waiting_parts", "delivered", "rejected", "cancelled"].includes(value));
 export const priorities = [["low", "Baixa"], ["normal", "Normal"], ["high", "Alta"], ["urgent", "Urgente"]];
 export const workOrderTypes = [["standard", "Normal"], ["return", "Retorno"], ["warranty", "Garantia"]];
 export const paymentMethods = [["cash", "Dinheiro"], ["card", "Cartão"], ["bank_transfer", "Transferência"], ["mbway", "MB Way"], ["pix", "Pix"], ["other", "Outro"]];

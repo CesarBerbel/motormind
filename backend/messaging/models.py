@@ -257,7 +257,6 @@ class MessageLog(TimeStampedModel):
 class ChannelConfiguration(TimeStampedModel):
     class WhatsAppProvider(models.TextChoices):
         META = "meta", "Meta Cloud API"
-        DUMMY = "dummy", "Dummy / development"
 
     email_enabled = models.BooleanField(default=True)
     default_from_email = models.EmailField(blank=True)

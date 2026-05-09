@@ -15,6 +15,7 @@ urlpatterns = [
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("api/health/", HealthCheckView.as_view(), name="health-check"),
     path("api/", include("messaging.urls")),
+    path("api/ai/", include("ai_assistant.urls")),
     path("api/accounts/", include("accounts.urls")),
     path("api/workshop/", include("workshop.urls")),
     path("api/attendance/", include("attendance.urls")),

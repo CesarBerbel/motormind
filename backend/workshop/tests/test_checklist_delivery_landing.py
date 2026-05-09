@@ -64,25 +64,27 @@ class ChecklistDeliveryLandingTests(APITestCase):
         self.assertEqual(WorkOrderService.objects.get(pk=response.data["id"]).checklist_items.count(), 0)
 
 
-@override_settings(
-    WHATSAPP_ENABLED=True,
-    WHATSAPP_PROVIDER="dummy",
-    WHATSAPP_ACCESS_TOKEN="secret",
-    WHATSAPP_PHONE_NUMBER_ID="1234567890",
-    WHATSAPP_API_VERSION="v24.0",
-    WHATSAPP_PREVIEW_URL=True,
-)
-class WhatsAppEnvConfigurationTests(APITestCase):
+class WhatsAppAdminConfigurationTests(APITestCase):
     def setUp(self):
         User = get_user_model()
         self.user = User.objects.create_superuser(username="owner2", email="owner2@example.com", password="testpass123")
         self.client.force_authenticate(self.user)
 
-    def test_channel_settings_read_whatsapp_from_env(self):
+    def test_channel_settings_read_whatsapp_from_admin_configuration(self):
+        from messaging.models import ChannelConfiguration
+
+        config = ChannelConfiguration.load()
+        config.whatsapp_enabled = True
+        config.whatsapp_provider = "dummy"
+        config.whatsapp_access_token = "secret"
+        config.whatsapp_phone_number_id = "1234567890"
+        config.whatsapp_api_version = "v24.0"
+        config.whatsapp_preview_url = True
+        config.save()
+
         response = self.client.get("/api/settings/channel/")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data["whatsapp_enabled"])
         self.assertEqual(response.data["whatsapp_provider"], "dummy")
         self.assertTrue(response.data["whatsapp_token_configured"])
-        self.assertEqual(response.data["whatsapp_phone_number_id"], "***7890")
-        self.assertEqual(response.data["whatsapp_source"], ".env do backend")
+        self.assertEqual(response.data["whatsapp_phone_number_id"], "1234567890")

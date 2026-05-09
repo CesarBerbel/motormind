@@ -582,13 +582,8 @@ class MessageLogSerializer(serializers.ModelSerializer):
 
 
 class ChannelConfigurationSerializer(serializers.ModelSerializer):
-    whatsapp_enabled = serializers.SerializerMethodField()
-    whatsapp_provider = serializers.SerializerMethodField()
     whatsapp_token_configured = serializers.SerializerMethodField()
-    whatsapp_phone_number_id = serializers.SerializerMethodField()
-    whatsapp_api_version = serializers.SerializerMethodField()
-    whatsapp_preview_url = serializers.SerializerMethodField()
-    whatsapp_source = serializers.SerializerMethodField()
+    whatsapp_access_token = serializers.CharField(write_only=True, required=False, allow_blank=True, style={"input_type": "password"})
 
     class Meta:
         model = ChannelConfiguration
@@ -597,49 +592,37 @@ class ChannelConfigurationSerializer(serializers.ModelSerializer):
             "default_from_email",
             "whatsapp_enabled",
             "whatsapp_provider",
+            "whatsapp_access_token",
             "whatsapp_token_configured",
             "whatsapp_phone_number_id",
             "whatsapp_api_version",
             "whatsapp_preview_url",
-            "whatsapp_source",
             "updated_at",
         ]
-        read_only_fields = [
-            "whatsapp_enabled",
-            "whatsapp_provider",
-            "whatsapp_token_configured",
-            "whatsapp_phone_number_id",
-            "whatsapp_api_version",
-            "whatsapp_preview_url",
-            "whatsapp_source",
-            "updated_at",
-        ]
-
-    def get_whatsapp_enabled(self, obj):
-        return bool(getattr(settings, "WHATSAPP_ENABLED", False))
-
-    def get_whatsapp_provider(self, obj):
-        return getattr(settings, "WHATSAPP_PROVIDER", "meta")
+        read_only_fields = ["whatsapp_token_configured", "updated_at"]
 
     def get_whatsapp_token_configured(self, obj):
-        return bool(getattr(settings, "WHATSAPP_ACCESS_TOKEN", ""))
+        return bool(obj.whatsapp_access_token)
 
-    def get_whatsapp_phone_number_id(self, obj):
-        value = getattr(settings, "WHATSAPP_PHONE_NUMBER_ID", "") or ""
-        return value if not value else f"***{value[-4:]}"
-
-    def get_whatsapp_api_version(self, obj):
-        return getattr(settings, "WHATSAPP_API_VERSION", "v24.0")
-
-    def get_whatsapp_preview_url(self, obj):
-        return bool(getattr(settings, "WHATSAPP_PREVIEW_URL", False))
-
-    def get_whatsapp_source(self, obj):
-        return ".env do backend"
+    def validate_whatsapp_provider(self, value):
+        if value != ChannelConfiguration.WhatsAppProvider.META:
+            raise serializers.ValidationError("WhatsApp deve usar envio real via Meta Cloud API. Modo dummy/desenvolvimento não é permitido.")
+        return value
 
     def update(self, instance, validated_data):
-        instance.email_enabled = validated_data.get("email_enabled", instance.email_enabled)
-        instance.default_from_email = validated_data.get("default_from_email", instance.default_from_email)
+        for field in [
+            "email_enabled",
+            "default_from_email",
+            "whatsapp_enabled",
+            "whatsapp_provider",
+            "whatsapp_phone_number_id",
+            "whatsapp_api_version",
+            "whatsapp_preview_url",
+        ]:
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
+        if "whatsapp_access_token" in validated_data:
+            instance.whatsapp_access_token = validated_data["whatsapp_access_token"]
         instance.save()
         return instance
 

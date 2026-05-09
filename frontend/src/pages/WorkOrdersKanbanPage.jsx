@@ -10,7 +10,9 @@ import StatusBadge from "../components/StatusBadge";
 import { kanbanWorkOrderStatuses, money, priorities } from "../workshopOptions";
 import SearchAutocompleteInput from "../components/SearchAutocompleteInput";
 
-const HIDDEN_KANBAN_STATUSES = new Set(["draft", "delivered", "cancelled"]);
+const HIDDEN_KANBAN_STATUSES = new Set(["draft", "delivered", "rejected", "cancelled"]);
+const VISUAL_KANBAN_STATUS = { waiting_parts: "awaiting_approval" };
+const visualKanbanStatus = (status) => VISUAL_KANBAN_STATUS[status] || status;
 
 async function fetchAllWorkOrders(params = {}) {
   const all = [];
@@ -88,7 +90,7 @@ export default function WorkOrdersKanbanPage() {
 
   const groupedOrders = useMemo(() => {
     return visibleStatuses.reduce((acc, [currentStatus]) => {
-      acc[currentStatus] = orders.filter((order) => order.status === currentStatus);
+      acc[currentStatus] = orders.filter((order) => visualKanbanStatus(order.status) === currentStatus);
       return acc;
     }, {});
   }, [orders, visibleStatuses]);
@@ -104,11 +106,13 @@ export default function WorkOrdersKanbanPage() {
     try {
       const params = {};
       if (normalizedSearch) params.search = normalizedSearch;
-      if (normalizedStatus) params.status = normalizedStatus;
+      if (normalizedStatus && normalizedStatus !== "awaiting_approval") params.status = normalizedStatus;
       if (normalizedPriority) params.priority = normalizedPriority;
 
       const data = await fetchAllWorkOrders(params);
-      setOrders(data.filter((order) => !HIDDEN_KANBAN_STATUSES.has(order.status)));
+      let visible = data.filter((order) => !HIDDEN_KANBAN_STATUSES.has(order.status));
+      if (normalizedStatus) visible = visible.filter((order) => visualKanbanStatus(order.status) === normalizedStatus);
+      setOrders(visible);
     } catch (err) {
       setError(apiError(err));
     } finally {
@@ -129,7 +133,7 @@ export default function WorkOrdersKanbanPage() {
 
     if (selectedOrder?.id && !HIDDEN_KANBAN_STATUSES.has(selectedOrder.status)) {
       setOrders([selectedOrder]);
-      if (selectedOrder.status) setStatus(selectedOrder.status);
+      if (selectedOrder.status) setStatus(visualKanbanStatus(selectedOrder.status));
       if (selectedOrder.priority) setPriority(selectedOrder.priority);
       return;
     }
@@ -272,7 +276,7 @@ export default function WorkOrdersKanbanPage() {
           onDrop={(event) => onDrop(event, currentStatus)}
         >
           <div className="kanban-column-header">
-            <span>{label}</span>
+            <span>{currentStatus === "awaiting_approval" ? "Aguardando aprovação / peça" : label}</span>
             <Badge bg="secondary">{columnOrders.length}</Badge>
           </div>
 

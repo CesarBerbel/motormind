@@ -319,9 +319,16 @@ export default function WorkOrderDetailPage() {
   async function createApprovalLink(event) {
     event.preventDefault();
     try {
-      const { data } = await api.post(`/workshop/work-orders/${id}/create_customer_approval/`, approvalForm);
+      const payload = { ...approvalForm, frontend_base_url: window.location.origin };
+      const { data } = await api.post(`/workshop/work-orders/${id}/create_customer_approval/`, payload);
       setApprovalResult(data);
-      setNotice("Link de aprovação digital gerado com sucesso.");
+      if (data.email_sent) {
+        setNotice(`Link de aprovação digital gerado e e-mail enviado para ${data.email_to}.`);
+      } else if (data.email_error) {
+        setNotice(data.email_error);
+      } else {
+        setNotice("Link de aprovação digital gerado com sucesso.");
+      }
       await load();
     } catch (err) {
       setError(apiError(err));
@@ -667,7 +674,7 @@ export default function WorkOrderDetailPage() {
           <Card className="border-0 shadow-sm h-100">
             <Card.Header className="bg-white d-flex justify-content-between align-items-center">
               <strong>Aprovação digital</strong>
-              {hasPermission("work_orders.edit") ? <Button size="sm" onClick={() => { setApprovalResult(null); setApprovalModal(true); }}>Gerar link</Button> : null}
+              {hasPermission("work_orders.edit") ? <Button size="sm" onClick={() => { setApprovalResult(null); setApprovalModal(true); }}>Gerar e enviar link</Button> : null}
             </Card.Header>
             <Card.Body>
               {approvals.length ? (
@@ -759,6 +766,17 @@ export default function WorkOrderDetailPage() {
             </Col>
           </Row>
           {approvalResult ? <Card className="border-0 bg-light mt-3"><Card.Body>
+            {approvalResult.email_sent ? (
+              <Alert variant="success" className="py-2 small">E-mail enviado para <strong>{approvalResult.email_to}</strong>.</Alert>
+            ) : approvalResult.email_error ? (
+              <Alert variant="warning" className="py-2 small">{approvalResult.email_error}</Alert>
+            ) : null}
+            {approvalResult.console_logged ? (
+              <Alert variant="info" className="py-2 small">O conteúdo do e-mail/link foi impresso no console/log do backend com o marcador <strong>APROVACAO DIGITAL - EMAIL DE TESTE</strong>.</Alert>
+            ) : null}
+            {approvalResult.email_backend ? (
+              <div className="small text-muted mb-2">Backend de e-mail: <code>{approvalResult.email_backend}</code></div>
+            ) : null}
             <div className="small text-muted mb-1">Link público gerado</div>
             <Form.Control readOnly value={approvalResult.public_url || `${window.location.origin}${approvalResult.public_url_path}`} />
             <div className="d-flex gap-2 mt-3">
@@ -767,7 +785,7 @@ export default function WorkOrderDetailPage() {
             </div>
           </Card.Body></Card> : null}
         </Modal.Body>
-        <Modal.Footer><Button variant="secondary" onClick={() => setApprovalModal(false)}>Fechar</Button><Button type="submit">Gerar link</Button></Modal.Footer>
+        <Modal.Footer><Button variant="secondary" onClick={() => setApprovalModal(false)}>Fechar</Button><Button type="submit">Gerar e enviar link</Button></Modal.Footer>
       </Form>
     </Modal>
 

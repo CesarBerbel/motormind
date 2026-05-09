@@ -43,6 +43,15 @@ export default function CustomerApprovalPage() {
   useEffect(() => { load(); }, [token]);
 
   async function sendDecision(decision) {
+    const digits = String(form.document || "").replace(/\D/g, "");
+    if (![11, 14].includes(digits.length)) {
+      setError("Informe um CPF com 11 dígitos ou CNPJ com 14 dígitos.");
+      return;
+    }
+    if (!String(form.notes || "").trim()) {
+      setError("Informe uma observação antes de aprovar ou recusar.");
+      return;
+    }
     try {
       setSubmitting(true);
       setError("");
@@ -156,10 +165,10 @@ export default function CustomerApprovalPage() {
                     <Alert variant="info" className="small">Ao aprovar, você confirma ciência dos itens, valores e condições deste documento. Ao recusar, informe o motivo nas observações.</Alert>
                     <Form.Label>Nome de quem está decidindo</Form.Label>
                     <Form.Control className="mb-3" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                    <Form.Label>CPF/CNPJ ou documento</Form.Label>
-                    <Form.Control className="mb-3" value={form.document} onChange={(e) => setForm({ ...form, document: e.target.value })} />
-                    <Form.Label>Observações</Form.Label>
-                    <Form.Control as="textarea" rows={4} className="mb-3" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+                    <Form.Label>CPF/CNPJ <span className="text-danger">*</span></Form.Label>
+                    <Form.Control required className="mb-3" placeholder="Informe CPF ou CNPJ válido" value={form.document} onChange={(e) => setForm({ ...form, document: e.target.value })} />
+                    <Form.Label>Observações <span className="text-danger">*</span></Form.Label>
+                    <Form.Control required as="textarea" rows={4} className="mb-3" placeholder="Informe sua observação para registrar a decisão" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
                     <div className="d-grid gap-2">
                       <Button variant="success" disabled={submitting} onClick={() => sendDecision("approved")}>Aprovar documento</Button>
                       <Button variant="outline-danger" disabled={submitting} onClick={() => sendDecision("rejected")}>Recusar documento</Button>

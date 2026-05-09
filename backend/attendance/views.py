@@ -34,6 +34,7 @@ class AttendanceDashboardView(APIView):
             WorkOrder.Status.OPEN,
             WorkOrder.Status.DIAGNOSIS,
             WorkOrder.Status.AWAITING_APPROVAL,
+            WorkOrder.Status.WAITING_PARTS,
             WorkOrder.Status.APPROVED,
             WorkOrder.Status.IN_PROGRESS,
             WorkOrder.Status.QUALITY_CHECK,
@@ -48,7 +49,7 @@ class AttendanceDashboardView(APIView):
         return Response({
             "counts": {
                 "open_work_orders": WorkOrder.objects.filter(status__in=open_work_order_statuses).count(),
-                "awaiting_approval_work_orders": WorkOrder.objects.filter(status=WorkOrder.Status.AWAITING_APPROVAL).count(),
+                "awaiting_approval_work_orders": WorkOrder.objects.filter(status__in=[WorkOrder.Status.AWAITING_APPROVAL, WorkOrder.Status.WAITING_PARTS]).count(),
                 "ready_work_orders": WorkOrder.objects.filter(status=WorkOrder.Status.READY).count(),
                 "estimates_open": estimates.filter(status__in=estimate_open_statuses).count(),
                 "estimates_sent": estimates.filter(status=Estimate.Status.SENT).count(),

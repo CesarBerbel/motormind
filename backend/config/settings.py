@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "accounts",
     "messaging",
+    "ai_assistant",
     "workshop",
     "attendance.apps.AttendanceConfig",
     "finance.apps.FinanceConfig",
@@ -145,12 +146,7 @@ EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "False").lower() == "true"
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@example.com")
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
 
-WHATSAPP_ENABLED = os.getenv("WHATSAPP_ENABLED", "False").lower() == "true"
-WHATSAPP_PROVIDER = os.getenv("WHATSAPP_PROVIDER", "meta")
-WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
-WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
-WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v24.0")
-WHATSAPP_PREVIEW_URL = os.getenv("WHATSAPP_PREVIEW_URL", "False").lower() == "true"
+# Configurações de WhatsApp ficam em Mensageria > Channel configuration no admin do Django.
 
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)

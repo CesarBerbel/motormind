@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.test import override_settings
 from rest_framework.test import APITestCase
 
@@ -14,7 +15,7 @@ class WorkOrderDocumentsAndApprovalTests(APITestCase):
         self.client.force_authenticate(self.user)
         self.customer = Contact.objects.create(first_name="Cliente Teste", email="cliente@example.com")
         self.vehicle = Vehicle.objects.create(customer=self.customer, plate="ABC1D23", make="VW", model="Gol", year=2020)
-        self.work_order = WorkOrder.objects.create(customer=self.customer, vehicle=self.vehicle, title="Revisão", complaint="Barulho ao frear", created_by=self.user, updated_by=self.user)
+        self.work_order = WorkOrder.objects.create(customer=self.customer, vehicle=self.vehicle, title="Revisão", complaint="Barulho ao frear", status=WorkOrder.Status.AWAITING_APPROVAL, created_by=self.user, updated_by=self.user)
         self.service = WorkshopService.objects.create(name="Diagnóstico", default_unit_price="120.00")
         self.part = Part.objects.create(sku="P001", name="Pastilha", unit="un", sale_price="80.00", cost_price="40.00")
 
@@ -32,6 +33,10 @@ class WorkOrderDocumentsAndApprovalTests(APITestCase):
         )
         self.assertEqual(create_response.status_code, 201)
         self.assertIn("public_url", create_response.data)
+        self.assertTrue(create_response.data["email_sent"])
+        self.assertEqual(create_response.data["email_to"], "cliente@example.com")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(create_response.data["public_url"], mail.outbox[0].body)
         token = create_response.data["token"]
 
         self.client.force_authenticate(user=None)
@@ -41,11 +46,13 @@ class WorkOrderDocumentsAndApprovalTests(APITestCase):
 
         decision_response = self.client.post(
             f"/api/workshop/customer-approvals/{token}/",
-            {"decision": "approved", "name": "Cliente Teste", "document": "123", "notes": "Aprovado."},
+            {"decision": "approved", "name": "Cliente Teste", "document": "123.456.789-09", "notes": "Aprovado."},
             format="json",
         )
         self.assertEqual(decision_response.status_code, 200)
         self.assertEqual(decision_response.data["effective_status"], WorkOrderCustomerApproval.Status.APPROVED)
+        self.work_order.refresh_from_db()
+        self.assertEqual(self.work_order.status, WorkOrder.Status.APPROVED)
 
         pdf_response = self.client.get(f"/api/workshop/customer-approvals/{token}/pdf/")
         self.assertEqual(pdf_response.status_code, 200)

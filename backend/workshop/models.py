@@ -539,11 +539,13 @@ class WorkOrder(TimeStampedModel):
         OPEN = "open", "Aberta"
         DIAGNOSIS = "diagnosis", "Diagnostico"
         AWAITING_APPROVAL = "awaiting_approval", "Aguardando aprovacao"
+        WAITING_PARTS = "waiting_parts", "Aguardando peca"
         APPROVED = "approved", "Aprovada"
         IN_PROGRESS = "in_progress", "Em execucao"
         QUALITY_CHECK = "quality_check", "Conferencia"
         READY = "ready", "Pronta para entrega"
         DELIVERED = "delivered", "Entregue"
+        REJECTED = "rejected", "Recusada"
         CANCELLED = "cancelled", "Cancelada"
 
     class Priority(models.TextChoices):
@@ -1100,10 +1102,17 @@ class WorkOrderCustomerApproval(TimeStampedModel):
             raise ValidationError({"status": "Decisão inválida para aprovação digital."})
         if not self.can_decide:
             raise ValidationError({"status": "Este link não está mais disponível para decisão."})
+        document = (document or "").strip()
+        notes = (notes or "").strip()
+        digits = "".join(ch for ch in document if ch.isdigit())
+        if len(digits) not in (11, 14):
+            raise ValidationError({"document": "Informe um CPF com 11 dígitos ou CNPJ com 14 dígitos."})
+        if not notes:
+            raise ValidationError({"notes": "Informe uma observação para registrar a decisão."})
         self.status = status
         self.decision_name = (name or "").strip()[:180]
-        self.decision_document = (document or "").strip()[:30]
-        self.decision_notes = (notes or "").strip()
+        self.decision_document = document[:30]
+        self.decision_notes = notes
         self.decision_ip = ip_address
         self.decision_user_agent = (user_agent or "")[:2000]
         self.decided_at = timezone.now()
@@ -1170,10 +1179,16 @@ class WorkOrderDeliverySignature(TimeStampedModel):
 
 
 class WorkOrderNotificationRule(TimeStampedModel):
+    class RecipientTarget(models.TextChoices):
+        CUSTOMER = "customer", "Cliente"
+        WORKSHOP = "workshop", "Oficina"
+        BOTH = "both", "Cliente e oficina"
+
     name = models.CharField(max_length=160)
     trigger_status = models.CharField(max_length=30, choices=WorkOrder.Status.choices)
     channel = models.CharField(max_length=20, choices=MessageTemplate.Channel.choices)
     template = models.ForeignKey(MessageTemplate, on_delete=models.PROTECT, related_name="work_order_notification_rules")
+    recipient_target = models.CharField(max_length=20, choices=RecipientTarget.choices, default=RecipientTarget.CUSTOMER, verbose_name="Enviar para")
     is_active = models.BooleanField(default=True)
     send_once_per_status = models.BooleanField(default=True)
     created_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="created_work_order_notification_rules")
@@ -1194,6 +1209,7 @@ class WorkOrderMessage(TimeStampedModel):
     trigger_type = models.CharField(max_length=30, choices=TriggerType.choices, default=TriggerType.MANUAL)
     trigger_status = models.CharField(max_length=30, blank=True)
     channel = models.CharField(max_length=20, choices=MessageTemplate.Channel.choices)
+    recipient_target = models.CharField(max_length=20, blank=True)
     template = models.ForeignKey(MessageTemplate, null=True, blank=True, on_delete=models.SET_NULL, related_name="work_order_messages")
     notification_rule = models.ForeignKey(WorkOrderNotificationRule, null=True, blank=True, on_delete=models.SET_NULL, related_name="messages")
     message_log = models.ForeignKey(MessageLog, null=True, blank=True, on_delete=models.SET_NULL, related_name="work_order_messages")

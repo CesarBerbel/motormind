@@ -11,6 +11,7 @@ import PageHeader from "../components/PageHeader";
 import RichTextEditor from "../components/RichTextEditor";
 import SystemToast from "../components/SystemToast";
 import VariableHelp, { templateVariables } from "../components/VariableHelp";
+import AIAssistButton from "../components/AIAssistButton";
 
 const empty = {
   name: "",
@@ -137,12 +138,12 @@ export default function TemplateFormPage({ embedded = false }) {
                         <Form.Control value={form.email_subject || ""} onChange={(event) => update({ email_subject: event.target.value })} required />
                       </Form.Group>
                       <Form.Group className="mb-3">
-                        <Form.Label>Corpo HTML</Form.Label>
+                        <div className="d-flex align-items-center justify-content-between gap-2 mb-1"><Form.Label className="mb-0">Corpo HTML</Form.Label><AIAssistButton task="template_email" value={form.email_html_body || ""} context={form.description || ""} onApply={(text) => update({ email_html_body: text })} /></div>
                         <RichTextEditor value={form.email_html_body || ""} onChange={(value) => update({ email_html_body: value })} minHeight={320} placeholder="Digite o conteúdo visual do email." variables={templateVariables} />
                         <Form.Text>Use as variáveis do painel lateral, como {"{{ nome_contato }}"}, diretamente no editor.</Form.Text>
                       </Form.Group>
                       <Form.Group>
-                        <Form.Label>Fallback em texto puro</Form.Label>
+                        <div className="d-flex align-items-center justify-content-between gap-2 mb-1"><Form.Label className="mb-0">Fallback em texto puro</Form.Label><AIAssistButton task="email" value={form.email_text_body || ""} context={form.email_html_body || form.description || ""} onApply={(text) => update({ email_text_body: text })} /></div>
                         <Form.Control as="textarea" rows={6} className="code-help" value={form.email_text_body || ""} onChange={(event) => update({ email_text_body: event.target.value })} placeholder="Se vazio, o backend gera texto a partir do HTML." />
                       </Form.Group>
                     </>
@@ -152,7 +153,7 @@ export default function TemplateFormPage({ embedded = false }) {
                         O WhatsApp não renderiza HTML como um email. Por isso, este campo continua como texto puro para evitar formatação inválida no envio.
                       </NoticeBox>
                       <Form.Group>
-                        <Form.Label>Texto WhatsApp</Form.Label>
+                        <div className="d-flex align-items-center justify-content-between gap-2 mb-1"><Form.Label className="mb-0">Texto WhatsApp</Form.Label><AIAssistButton task="template_whatsapp" value={form.whatsapp_body || ""} context={form.description || ""} onApply={(text) => update({ whatsapp_body: text })} /></div>
                         <Form.Control as="textarea" rows={12} className="code-help" value={form.whatsapp_body || ""} onChange={(event) => update({ whatsapp_body: event.target.value })} required maxLength={4096} />
                         <Form.Text>Limite de 4096 caracteres. Variáveis como {"{{ nome_contato }}"} continuam funcionando.</Form.Text>
                       </Form.Group>

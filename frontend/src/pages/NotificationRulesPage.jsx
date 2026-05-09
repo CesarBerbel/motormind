@@ -14,11 +14,11 @@ import { buildSearchSuggestions } from "../utils/search";
 import { workOrderStatuses } from "../workshopOptions";
 import { confirmDialog } from "../components/ConfirmDialog";
 
-const empty = () => ({ name: "", trigger_status: "open", channel: "whatsapp", template_id: "", is_active: true, send_once_per_status: true });
+const empty = () => ({ name: "", trigger_status: "open", channel: "whatsapp", template_id: "", recipient_target: "customer", is_active: true, send_once_per_status: true });
 
 const modalTabs = [
   { key: "rule", label: "Regra", description: "Nome e status gatilho" },
-  { key: "message", label: "Mensagem", description: "Canal e template" },
+  { key: "message", label: "Mensagem", description: "Canal, destinatário e template" },
   { key: "behavior", label: "Comportamento", description: "Ativação e repetição" },
 ];
 
@@ -131,12 +131,13 @@ export default function NotificationRulesPage() {
       <Card.Body className="p-0">
         {items.length === 0 ? <EmptyState /> : (
           <Table responsive hover className="mb-0">
-            <thead><tr><th>Regra</th><th>Status gatilho</th><th>Canal</th><th>Template</th><th>Envio único</th><th>Ativa</th><th></th></tr></thead>
+            <thead><tr><th>Regra</th><th>Status gatilho</th><th>Canal</th><th>Destinatário</th><th>Template</th><th>Envio único</th><th>Ativa</th><th></th></tr></thead>
             <tbody>{items.map((rule) => (
               <tr key={rule.id}>
                 <td className="fw-semibold">{rule.name}</td>
                 <td><StatusBadge value={rule.trigger_status} /></td>
                 <td><StatusBadge value={rule.channel} /></td>
+                <td>{rule.recipient_target === "workshop" ? "Oficina" : rule.recipient_target === "both" ? "Cliente e oficina" : "Cliente"}</td>
                 <td>{rule.template_name}</td>
                 <td>{rule.send_once_per_status ? "Sim" : "Não"}</td>
                 <td>{rule.is_active ? "Sim" : "Não"}</td>
@@ -187,7 +188,18 @@ export default function NotificationRulesPage() {
                   </Form.Select>
                 </Form.Group>
               </Col>
-              <Col md={8}>
+              <Col md={4}>
+                <Form.Group>
+                  <Form.Label>Enviar para</Form.Label>
+                  <Form.Select value={form.recipient_target || "customer"} onChange={(event) => update({ recipient_target: event.target.value })}>
+                    <option value="customer">Cliente</option>
+                    <option value="workshop">Oficina</option>
+                    <option value="both">Cliente e oficina</option>
+                  </Form.Select>
+                  <Form.Text>Email e WhatsApp da oficina são os cadastrados no admin.</Form.Text>
+                </Form.Group>
+              </Col>
+              <Col md={4}>
                 <Form.Group>
                   <Form.Label>Template</Form.Label>
                   <Form.Select required value={form.template_id || ""} onChange={(event) => update({ template_id: event.target.value })}>
