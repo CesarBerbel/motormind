@@ -85,6 +85,7 @@ cp .env.example .env
 python manage.py migrate
 python manage.py createsuperuser
 python manage.py seed_workshop_demo
+python manage.py seed_test_data
 python manage.py runserver
 ```
 
@@ -96,7 +97,15 @@ No Windows, use:
 
 O superusuário criado por `createsuperuser` já fica com `is_staff=True`. A área administrativa React não usa `/admin/`.
 
-O comando `seed_workshop_demo` cria exemplos de serviços, peças, cliente, veículo, OS e templates de notificação para acelerar os testes.
+O comando `seed_workshop_demo` cria um conjunto mínimo de demonstração para acelerar os primeiros testes.
+
+Para uma massa mais completa e realística, use:
+
+```bash
+python manage.py seed_test_data
+```
+
+Esse seed cria/atualiza clientes, veículos, fornecedores, peças, serviços e pacotes com descontos no pacote. Ele é idempotente: pode ser executado mais de uma vez sem duplicar os registros de teste.
 
 ## Como rodar o frontend
 

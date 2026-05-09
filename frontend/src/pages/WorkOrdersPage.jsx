@@ -9,7 +9,48 @@ import PageHeader from "../components/PageHeader";
 import StatusBadge from "../components/StatusBadge";
 import { money, priorities, workOrderStatuses } from "../workshopOptions";
 import SearchAutocompleteInput from "../components/SearchAutocompleteInput";
-import { buildSearchSuggestions } from "../utils/search";
+
+function formatDateTime(value) {
+  return value ? new Date(value).toLocaleString("pt-BR") : "Sem previsão";
+}
+
+function workOrderSearchSuggestion(order) {
+  const title = [order.number, order.customer_name].filter(Boolean).join(" - ") || "Ordem de serviço";
+  const status = order.status_label || order.status || "Sem status";
+  const priority = order.priority_label || order.priority || "Sem prioridade";
+  const vehicle = order.vehicle_display || "Sem veículo";
+  const orderTitle = order.title || "Sem título";
+  const total = `Total: ${money(order.grand_total)}`;
+  const balance = `Saldo: ${money(order.balance_due)}`;
+  const promisedAt = `Previsão: ${formatDateTime(order.promised_at)}`;
+
+  return {
+    key: order.id,
+    label: title,
+    value: title,
+    description: [vehicle, orderTitle, status, priority].filter(Boolean).join(" • "),
+    meta: [promisedAt, total, balance, order.complaint].filter(Boolean).join(" • "),
+    payload: order,
+    searchText: [
+      order.number,
+      order.customer_name,
+      order.vehicle_display,
+      order.title,
+      order.complaint,
+      order.status,
+      order.status_label,
+      order.priority,
+      order.priority_label,
+      order.grand_total,
+      order.balance_due,
+      order.promised_at,
+    ].filter(Boolean).join(" "),
+  };
+}
+
+function buildWorkOrderSearchSuggestions(items) {
+  return (items || []).map(workOrderSearchSuggestion);
+}
 
 export default function WorkOrdersPage() {
   const [items, setItems] = useState([]);
@@ -18,22 +59,56 @@ export default function WorkOrdersPage() {
   const [priority, setPriority] = useState("");
   const [error, setError] = useState("");
 
-  async function load() {
+  async function load(nextSearch = search, nextStatus = status, nextPriority = priority) {
+    const normalizedSearch = String(nextSearch || "").trim();
+    const normalizedStatus = String(nextStatus || "").trim();
+    const normalizedPriority = String(nextPriority || "").trim();
+
     try {
       const params = {};
-      if (search) params.search = search;
-      if (status) params.status = status;
-      if (priority) params.priority = priority;
+      if (normalizedSearch) params.search = normalizedSearch;
+      if (normalizedStatus) params.status = normalizedStatus;
+      if (normalizedPriority) params.priority = normalizedPriority;
       setItems(results((await api.get("/workshop/work-orders/", { params })).data));
     } catch (err) {
       setError(apiError(err));
     }
   }
 
-  useEffect(() => { load(); }, [status, priority]);
+  function clearSearch() {
+    setSearch("");
+    setStatus("");
+    setPriority("");
+    load("", "", "");
+  }
+
+  function selectWorkOrderSuggestion(suggestion, nextValue) {
+    const selectedOrder = suggestion?.payload;
+    setSearch(nextValue || "");
+
+    if (selectedOrder?.id) {
+      setItems([selectedOrder]);
+      return;
+    }
+
+    load(nextValue, status, priority);
+  }
+
+  function handleStatusChange(value) {
+    setStatus(value);
+    load(search, value, priority);
+  }
+
+  function handlePriorityChange(value) {
+    setPriority(value);
+    load(search, status, value);
+  }
+
+  useEffect(() => { load(); }, []);
 
   return <>
     <PageHeader title="Ordens de serviço" subtitle="Entrada, diagnóstico, aprovação, execução, entrega e financeiro.">
+      <Button as={Link} to="/work-orders/agenda" variant="outline-primary" className="me-2">Agenda</Button>
       <Button as={Link} to="/work-orders/kanban" variant="outline-primary" className="me-2">Kanban</Button>
       <Button as={Link} to="/work-orders/new">Nova OS</Button>
     </PageHeader>
@@ -42,21 +117,33 @@ export default function WorkOrdersPage() {
 
     <Card className="border-0 shadow-sm mb-3">
       <Card.Body>
-        <Row className="g-2">
-          <Col lg={6}><SearchAutocompleteInput placeholder="Buscar por número, cliente, placa ou descrição" value={search} onChange={setSearch} onSearch={load} suggestions={buildSearchSuggestions(items, ["number", "customer_name", "vehicle_display", "title", "complaint", "status_label"])} /></Col>
+        <Row className="g-2 align-items-end">
+          <Col lg={6}>
+            <Form.Label>Busca</Form.Label>
+            <SearchAutocompleteInput
+              placeholder="Buscar por número, cliente, placa, título, relato, status ou prioridade"
+              value={search}
+              onChange={setSearch}
+              onSearch={(value) => load(value, status, priority)}
+              onSelect={selectWorkOrderSuggestion}
+              suggestions={buildWorkOrderSearchSuggestions(items)}
+            />
+          </Col>
           <Col lg={2}>
-            <Form.Select value={status} onChange={(event) => setStatus(event.target.value)}>
-              <option value="">Status</option>
+            <Form.Label>Status</Form.Label>
+            <Form.Select value={status} onChange={(event) => handleStatusChange(event.target.value)}>
+              <option value="">Todos</option>
               {workOrderStatuses.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </Form.Select>
           </Col>
           <Col lg={2}>
-            <Form.Select value={priority} onChange={(event) => setPriority(event.target.value)}>
-              <option value="">Prioridade</option>
+            <Form.Label>Prioridade</Form.Label>
+            <Form.Select value={priority} onChange={(event) => handlePriorityChange(event.target.value)}>
+              <option value="">Todas</option>
               {priorities.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </Form.Select>
           </Col>
-          <Col lg={2}><Button className="w-100" variant="outline-primary" onClick={load}>Buscar</Button></Col>
+          <Col lg={2}><Button className="w-100" variant="outline-secondary" onClick={clearSearch} disabled={!search && !status && !priority}>Limpar pesquisa</Button></Col>
         </Row>
       </Card.Body>
     </Card>

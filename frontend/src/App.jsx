@@ -20,6 +20,7 @@ import WorkOrdersPage from "./pages/WorkOrdersPage";
 import WorkOrderFormPage from "./pages/WorkOrderFormPage";
 import WorkOrderDetailPage from "./pages/WorkOrderDetailPage";
 import WorkOrdersKanbanPage from "./pages/WorkOrdersKanbanPage";
+import WorkOrdersAgendaPage from "./pages/WorkOrdersAgendaPage";
 import VehiclesPage from "./pages/VehiclesPage";
 import CategoriesPage from "./pages/CategoriesPage";
 import WorkshopServicesPage from "./pages/WorkshopServicesPage";
@@ -120,6 +121,7 @@ export default function App() {
           <Route path="work-orders" element={<Guard permission="work_orders.view"><WorkOrdersPage /></Guard>} />
           <Route path="work-orders/new" element={<Guard permission="work_orders.create"><FloatingRouteForm backTo="/work-orders" title="Nova ordem de serviço"><WorkOrderFormPage embedded /></FloatingRouteForm></Guard>} />
           <Route path="work-orders/kanban" element={<Guard permission="work_orders.view"><WorkOrdersKanbanPage /></Guard>} />
+          <Route path="work-orders/agenda" element={<Guard permission="work_orders.view"><WorkOrdersAgendaPage /></Guard>} />
           <Route path="work-orders/:id" element={<Guard permission="work_orders.view"><WorkOrderDetailPage /></Guard>} />
           <Route path="work-orders/:id/edit" element={<Guard permission="work_orders.edit"><FloatingRouteForm backTo="/work-orders" title="Editar ordem de serviço"><WorkOrderFormPage embedded /></FloatingRouteForm></Guard>} />
           <Route path="vehicles" element={<Guard permission="vehicles.view"><VehiclesPage /></Guard>} />

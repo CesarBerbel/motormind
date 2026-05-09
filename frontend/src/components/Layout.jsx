@@ -5,7 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 import { hasPermission } from "../auth/permissions";
 
 const baseMenuGroups = [
-  { title: "Atendimento", links: [["/dashboard/atendimento", "Landing atendimento", "dashboard.attendance"], ["/attendance/estimates", "Orçamentos", "estimates.view"], ["/attendance/counter-sales", "Venda avulsa", "counter_sales.view"], ["/work-orders", "OS - Lista", "work_orders.view"], ["/work-orders/kanban", "OS - Kanban", "work_orders.view"], ["/vehicles", "Veículos", "vehicles.view"], ["/contacts", "Clientes / contatos", "contacts.view"], ["/groups", "Grupos de contatos", "contacts.view"]] },
+  { title: "Atendimento", links: [["/dashboard/atendimento", "Landing atendimento", "dashboard.attendance"], ["/attendance/estimates", "Orçamentos", "estimates.view"], ["/attendance/counter-sales", "Venda avulsa", "counter_sales.view"], ["/work-orders", "OS - Lista", "work_orders.view"], ["/work-orders/agenda", "OS - Agenda", "work_orders.view"], ["/work-orders/kanban", "OS - Kanban", "work_orders.view"], ["/vehicles", "Veículos", "vehicles.view"], ["/contacts", "Clientes / contatos", "contacts.view"], ["/groups", "Grupos de contatos", "contacts.view"]] },
   { title: "Técnico", links: [["/dashboard/tecnico", "Landing técnico", ["technical.dashboard", "dashboard.technical"]], ["/technical/workbench", "Bancada técnica", ["technical.dashboard", "dashboard.technical"]], ["/workshop-services", "Serviços", "services.view"], ["/service-packages", "Pacotes", "service_packages.view"]] },
   { title: "Estoque", links: [["/dashboard/estoque", "Landing estoque", "dashboard.stock"], ["/parts", "Peças / estoque", "parts.view"], ["/stock-movements", "Movimentos", "stock.view"], ["/purchasing/purchase-orders", "Pedidos de compra", "purchases.view"], ["/purchasing/suppliers", "Fornecedores", "suppliers.view"], ["/categories", "Categorias", "categories.view"]] },
   { title: "Financeiro", links: [["/dashboard/financeiro", "Landing financeiro", "dashboard.finance"], ["/finance/dashboard", "Painel financeiro detalhado", "finance.view"], ["/finance/accounts-receivable", "Contas a receber", "finance.view"], ["/finance/accounts-payable", "Contas a pagar", "finance.view"], ["/finance/cash-flow", "Fluxo de caixa", "finance.view"], ["/purchasing/purchase-orders", "Pedidos de compra", "purchases.view"]] },
@@ -55,9 +55,11 @@ export default function Layout() {
 
   const workshopName = workshopProfile?.display_name || workshopProfile?.trade_name || workshopProfile?.legal_name || "Oficina Admin";
   const userName = user?.full_name || user?.username || "Usuário";
+  const isKanbanRoute = location.pathname === "/work-orders/kanban";
+  const contentClassName = `py-4 px-4 ${isKanbanRoute ? "content-full-width" : ""}`;
 
   return (
-    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${isKanbanRoute ? "kanban-shell" : ""}`.trim()}>
       <aside className="sidebar" aria-label="Menu lateral principal">
         <div className="sidebar-inner p-3">
           <div className="sidebar-brand mb-3">
@@ -145,7 +147,7 @@ export default function Layout() {
             <Button variant="outline-secondary" size="sm" onClick={logout}>Sair</Button>
           </Container>
         </Navbar>
-        <Container fluid className="py-4 px-4"><Outlet /></Container>
+        <Container fluid className={contentClassName}><Outlet /></Container>
       </div>
     </div>
   );

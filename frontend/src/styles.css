@@ -1903,3 +1903,319 @@ textarea.form-control {
     padding-right: .85rem !important;
   }
 }
+
+/* Kanban: usa toda a largura disponivel do painel, com menu expandido ou recolhido */
+.main-content .container-fluid.content-full-width {
+  max-width: none;
+  width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.content-full-width .kanban-board {
+  grid-auto-columns: minmax(240px, 1fr);
+}
+
+
+/* Kanban em tela cheia: sem scroll vertical no navegador; scroll vertical apenas nas colunas. */
+.app-shell.kanban-shell {
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.app-shell.kanban-shell .main-content {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-shell.kanban-shell .top-navbar {
+  flex: 0 0 auto;
+}
+
+.app-shell.kanban-shell .main-content .container-fluid.content-full-width {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: .75rem !important;
+}
+
+.kanban-page {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.kanban-page > :not(.kanban-board) {
+  flex: 0 0 auto;
+}
+
+.kanban-page .kanban-board {
+  align-items: stretch;
+  flex: 1 1 auto;
+  grid-auto-columns: minmax(260px, 1fr);
+  grid-auto-flow: column;
+  grid-template-columns: none;
+  height: 100%;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: .55rem;
+}
+
+.kanban-page .kanban-column {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.kanban-page .kanban-column-header {
+  background: #f1f4f9;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* Campo de data opcional: mostra a data de hoje como placeholder sem preencher o valor. */
+.date-placeholder-shell {
+  position: relative;
+}
+
+.date-placeholder-shell .date-placeholder-overlay {
+  color: #6c757d;
+  left: .75rem;
+  line-height: 1;
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.date-placeholder-shell .date-input-empty::-webkit-datetime-edit {
+  color: transparent;
+}
+
+.date-placeholder-shell:focus-within .date-placeholder-overlay {
+  display: none;
+}
+
+.date-placeholder-shell:focus-within .date-input-empty::-webkit-datetime-edit {
+  color: inherit;
+}
+
+.autocomplete-item-main,
+.autocomplete-item-description,
+.autocomplete-item-meta {
+  display: block;
+  line-height: 1.25;
+}
+
+.autocomplete-item-main {
+  font-weight: 700;
+}
+
+.autocomplete-item-description {
+  margin-top: .2rem;
+  color: var(--app-text-muted);
+  font-size: .82rem;
+}
+
+.autocomplete-item-meta {
+  margin-top: .15rem;
+  color: var(--app-text-muted);
+  font-size: .78rem;
+  white-space: normal;
+}
+
+.agenda-timeline {
+  display: grid;
+  gap: 1rem;
+}
+
+.agenda-day {
+  border-left: 4px solid rgba(13, 110, 253, 0.18);
+  padding-left: 1rem;
+}
+
+.agenda-day-overdue {
+  border-left-color: rgba(220, 53, 69, 0.55);
+}
+
+.agenda-day-header {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.agenda-day-header h5 {
+  text-transform: capitalize;
+}
+
+.agenda-order-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.agenda-order-card {
+  border-radius: 1rem;
+}
+
+.agenda-order-overdue {
+  box-shadow: 0 0.5rem 1.25rem rgba(220, 53, 69, 0.12) !important;
+}
+
+.agenda-order-meta {
+  min-width: 170px;
+}
+
+.agenda-order-complaint {
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  padding-top: 0.75rem;
+}
+
+@media (max-width: 767.98px) {
+  .agenda-day {
+    padding-left: 0.75rem;
+  }
+
+  .agenda-order-meta {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+.agenda-view-toggle {
+  width: 100%;
+}
+
+.agenda-view-toggle .btn {
+  flex: 1 1 0;
+}
+
+.agenda-date-picker {
+  max-width: 170px;
+}
+
+.agenda-timeline-week {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  align-items: start;
+}
+
+.agenda-timeline-week .agenda-day {
+  background: rgba(248, 249, 250, 0.75);
+  border-radius: 1rem;
+  border-left-width: 3px;
+  padding: 0.9rem;
+}
+
+.agenda-empty-day {
+  border-radius: 1rem;
+}
+
+.agenda-month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.agenda-month-weekday {
+  color: var(--app-text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.agenda-month-cell {
+  align-items: flex-start;
+  background: rgba(248, 249, 250, 0.8);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 1rem;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-height: 94px;
+  padding: 0.75rem;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.agenda-month-cell:disabled {
+  cursor: default;
+  opacity: 0.66;
+}
+
+.agenda-month-cell-has-orders:not(:disabled):hover {
+  border-color: rgba(13, 110, 253, 0.35);
+  box-shadow: 0 0.5rem 1.25rem rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.agenda-month-cell-empty {
+  background: transparent;
+  border-color: transparent;
+}
+
+.agenda-month-cell-today {
+  border-color: rgba(13, 110, 253, 0.45);
+}
+
+.agenda-month-day-number {
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.agenda-month-count {
+  align-self: stretch;
+  background: rgba(108, 117, 125, 0.12);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.32rem 0.55rem;
+  text-align: center;
+}
+
+.agenda-month-cell-has-orders .agenda-month-count {
+  background: rgba(13, 110, 253, 0.12);
+}
+
+.agenda-month-count-overdue {
+  background: rgba(220, 53, 69, 0.14) !important;
+  color: #b02a37;
+}
+
+@media (max-width: 767.98px) {
+  .agenda-date-picker {
+    max-width: none;
+    width: 100%;
+  }
+
+  .agenda-month-grid {
+    gap: 0.35rem;
+  }
+
+  .agenda-month-cell {
+    border-radius: 0.75rem;
+    min-height: 72px;
+    padding: 0.5rem;
+  }
+
+  .agenda-month-count {
+    font-size: 0.72rem;
+    padding: 0.24rem 0.35rem;
+  }
+}

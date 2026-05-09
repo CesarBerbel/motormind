@@ -416,13 +416,13 @@ export default function WorkOrderDetailPage() {
   if (!order) return <><PageHeader title="Ordem de serviço"/><ErrorAlert error={error} onClose={() => setError("")}/></>;
 
   const detailTabs = [
-    { key: "summary", label: "Resumo e fotos", description: "Status, valores e evidências", badge: order.photos?.length || 0 },
+    { key: "summary", label: "Resumo", description: "Status, relato e fotos", badge: order.photos?.length || 0 },
+    { key: "services", label: "Serviços", description: "Mão de obra e execução", badge: order.services?.length || 0 },
     { key: "parts", label: "Peças", description: "Itens e estoque", badge: order.parts?.length || 0 },
-    ...(workshopSettings.technical_checklist_enabled || workshopSettings.delivery_signature_enabled ? [{ key: "technical", label: "Execução técnica", description: "Checklist e entrega", badge: checklistItems.filter((item) => item.is_completed).length }] : []),
-    { key: "services", label: "Serviços", description: "Execução técnica", badge: order.services?.length || 0 },
+    ...(workshopSettings.technical_checklist_enabled || workshopSettings.delivery_signature_enabled ? [{ key: "technical", label: "Execução", description: "Checklist e entrega", badge: checklistItems.filter((item) => item.is_completed).length }] : []),
     { key: "financial", label: "Financeiro", description: "Pagamentos e mensagens", badge: order.payments?.length || 0 },
     { key: "documents", label: "Documentos", description: "PDFs e aprovação", badge: approvals.length || 0 },
-    { key: "timeline", label: "Linha do tempo", description: "Auditoria da OS", badge: order.events?.length || 0 },
+    { key: "timeline", label: "Histórico", description: "Linha do tempo da OS", badge: order.events?.length || 0 },
   ];
 
   return <>

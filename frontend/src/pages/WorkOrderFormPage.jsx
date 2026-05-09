@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Alert, Button, Card, Col, Form, Row, Table } from "react-bootstrap";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import api, { apiError, results } from "../api/client";
@@ -9,6 +10,7 @@ import FormTabs, { TabPanel } from "../components/FormTabs";
 import TabbedFormFooter, { InlineTabbedFormFooter } from "../components/TabbedFormFooter";
 import MoneyInput from "../components/MoneyInput";
 import PageHeader from "../components/PageHeader";
+import SearchableSelect from "../components/SearchableSelect";
 import { datetimeLocalValue, fromDatetimeLocal, money, priorities, todayDatetimeLocalValue, workOrderTypes } from "../workshopOptions";
 
 function empty() {
@@ -58,7 +60,7 @@ function serviceLineFromService(service) {
     description: service.name,
     quantity: "",
     unit_price: service.default_unit_price || "0.00",
-    discount_amount: "",
+    discount_amount: "0.00",
     notes: "",
   };
 }
@@ -72,7 +74,7 @@ function serviceLineFromPackageItem(item, servicePackage) {
     description: item.description,
     quantity: item.quantity || "1.00",
     unit_price: item.unit_price || "0.00",
-    discount_amount: item.discount_amount || "0.00",
+    discount_amount: "0.00",
     notes: `Origem: pacote ${servicePackage.name}`,
   };
 }
@@ -102,6 +104,8 @@ export default function WorkOrderFormPage({ embedded = false }) {
   const [referenceOrders, setReferenceOrders] = useState([]);
   const [customerSearch, setCustomerSearch] = useState("");
   const [showCustomerOptions, setShowCustomerOptions] = useState(false);
+  const [customerMenuStyle, setCustomerMenuStyle] = useState(null);
+  const customerInputRef = useRef(null);
   const [selectedServiceId, setSelectedServiceId] = useState("");
   const [selectedPackageId, setSelectedPackageId] = useState("");
   const [initialServiceItems, setInitialServiceItems] = useState([]);
@@ -126,6 +130,20 @@ export default function WorkOrderFormPage({ embedded = false }) {
   const serviceLineDiscount = useMemo(() => initialServiceItems.reduce((total, line) => total + decimal(line.discount_amount), 0), [initialServiceItems]);
   const manualDiscount = decimal(form.manual_discount_amount);
   const predictedTotal = Math.max(serviceSubtotal - serviceLineDiscount - manualDiscount, 0);
+  const serviceOptions = useMemo(() => [
+    { value: "", label: "Selecione um serviço" },
+    ...services.map((service) => ({
+      value: service.id,
+      label: [service.code, service.name, money(service.default_unit_price)].filter(Boolean).join(" - "),
+    })),
+  ], [services]);
+  const packageOptions = useMemo(() => [
+    { value: "", label: "Selecione um pacote" },
+    ...servicePackages.map((servicePackage) => ({
+      value: servicePackage.id,
+      label: [servicePackage.code, servicePackage.name, money(servicePackage.total_amount)].filter(Boolean).join(" - "),
+    })),
+  ], [servicePackages]);
   const selectedOpeningPhotoSummary = useMemo(() => {
     if (!openingPhotos.length) return "Nenhuma foto selecionada";
     const visibleNames = openingPhotos.slice(0, 2).map((item) => item.file.name).join(", ");
@@ -133,12 +151,51 @@ export default function WorkOrderFormPage({ embedded = false }) {
     return `${openingPhotos.length} foto${openingPhotos.length > 1 ? "s" : ""} selecionada${openingPhotos.length > 1 ? "s" : ""}: ${visibleNames}${remaining}`;
   }, [openingPhotos]);
 
+  const updateCustomerMenuPosition = useCallback(() => {
+    if (!customerInputRef.current) return;
+    const rect = customerInputRef.current.getBoundingClientRect();
+    const viewportPadding = 12;
+    const gap = 6;
+    const spaceBelow = window.innerHeight - rect.bottom - viewportPadding;
+    const spaceAbove = rect.top - viewportPadding;
+    const openUp = spaceBelow < 220 && spaceAbove > spaceBelow;
+    const availableHeight = openUp ? spaceAbove : spaceBelow;
+
+    setCustomerMenuStyle({
+      position: "fixed",
+      top: openUp ? undefined : rect.bottom + gap,
+      bottom: openUp ? window.innerHeight - rect.top + gap : undefined,
+      left: Math.max(viewportPadding, rect.left),
+      width: Math.max(280, rect.width),
+      maxHeight: Math.min(360, Math.max(180, availableHeight)),
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!showCustomerOptions || filteredContacts.length === 0) return undefined;
+    updateCustomerMenuPosition();
+    return undefined;
+  }, [showCustomerOptions, filteredContacts.length, updateCustomerMenuPosition]);
+
+  useEffect(() => {
+    if (!showCustomerOptions) return undefined;
+    window.addEventListener("resize", updateCustomerMenuPosition);
+    window.addEventListener("scroll", updateCustomerMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateCustomerMenuPosition);
+      window.removeEventListener("scroll", updateCustomerMenuPosition, true);
+    };
+  }, [showCustomerOptions, updateCustomerMenuPosition]);
+
   const tabs = [
-    { key: "customer", label: "Cliente", description: "Cliente e veículo" },
-    { key: "order", label: "OS", description: "Tipo, prioridade e prazo" },
-    { key: "protection", label: "Proteção", description: "Fotos de entrada", badge: openingPhotos.length || "" },
-    !editing ? { key: "items", label: "Serviços", description: "Serviços e pacotes", badge: initialServiceItems.length || "" } : { key: "items", label: "Financeiro", description: "Desconto da OS" },
-    { key: "notes", label: "Relatos", description: "Diagnóstico e observações" },
+    { key: "customer", label: "Cliente e veículo", description: "Identificação do atendimento" },
+    { key: "opening", label: "Dados da OS", description: "Tipo, prioridade, prazo e KM" },
+    { key: "notes", label: "Relato técnico", description: "Queixa, diagnóstico e solução" },
+    !editing
+      ? { key: "items", label: "Serviços e pacotes", description: "Composição inicial", badge: initialServiceItems.length || "" }
+      : { key: "items", label: "Serviços", description: "Ajuste os itens no detalhe da OS" },
+    { key: "financial", label: "Financeiro", description: "Descontos e valor previsto" },
+    { key: "protection", label: "Fotos de entrada", description: "Proteção e evidências", badge: openingPhotos.length || "" },
   ];
 
   async function loadReferenceOrders(customerId, vehicleId) {
@@ -316,6 +373,14 @@ export default function WorkOrderFormPage({ embedded = false }) {
       return;
     }
     setInitialServiceItems((current) => [...current, ...packageItems.map((item) => serviceLineFromPackageItem(item, servicePackage))]);
+    const packageDiscount = decimal(servicePackage.discount_amount);
+    if (packageDiscount > 0) {
+      setForm((current) => ({
+        ...current,
+        manual_discount_amount: String(decimal(current.manual_discount_amount) + packageDiscount),
+      }));
+      setNotice(`Desconto do pacote ${servicePackage.name} aplicado ao desconto geral da OS.`);
+    }
     setSelectedPackageId("");
   }
 
@@ -372,7 +437,7 @@ export default function WorkOrderFormPage({ embedded = false }) {
       return false;
     }
     if (form.order_type === "warranty" && !form.reference_work_order_id) {
-      setActiveTab("order");
+      setActiveTab("opening");
       setError("Selecione a OS de referência para salvar uma OS de garantia.");
       return false;
     }
@@ -448,6 +513,7 @@ export default function WorkOrderFormPage({ embedded = false }) {
                 <Form.Label>Cliente</Form.Label>
                 <div className="autocomplete-box">
                   <Form.Control
+                    ref={customerInputRef}
                     required
                     autoComplete="off"
                     placeholder="Digite o nome, telefone ou email do cliente"
@@ -456,18 +522,23 @@ export default function WorkOrderFormPage({ embedded = false }) {
                     onBlur={() => setTimeout(() => setShowCustomerOptions(false), 150)}
                     onChange={onCustomerInputChange}
                   />
-                  {showCustomerOptions && filteredContacts.length > 0 && <div className="autocomplete-menu shadow-sm">
-                    {filteredContacts.map((contact) => <button
-                      type="button"
-                      key={contact.id}
-                      className="autocomplete-item"
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => applyCustomerSelection(contact)}
-                    >
-                      <span className="fw-semibold">{contactName(contact)}</span>
-                      <span className="small text-muted d-block">{contact.phone_e164 || "sem telefone"} · {contact.email || "sem email"}</span>
-                    </button>)}
-                  </div>}
+                  {showCustomerOptions && filteredContacts.length > 0 && customerMenuStyle
+                    ? createPortal(
+                        <div className="autocomplete-menu autocomplete-menu-portal shadow-lg" style={customerMenuStyle}>
+                          {filteredContacts.map((contact) => <button
+                            type="button"
+                            key={contact.id}
+                            className="autocomplete-item"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => applyCustomerSelection(contact)}
+                          >
+                            <span className="fw-semibold d-block">{contactName(contact)}</span>
+                            <span className="small text-muted d-block">{contact.phone_e164 || "sem telefone"} · {contact.email || "sem email"}</span>
+                          </button>)}
+                        </div>,
+                        document.body,
+                      )
+                    : null}
                 </div>
                 <div className="small text-muted mt-1">O input exibe apenas o nome completo. Telefone e email aparecem somente na lista para ajudar na escolha.</div>
               </Col>
@@ -481,7 +552,7 @@ export default function WorkOrderFormPage({ embedded = false }) {
             </Row>
           </TabPanel>
 
-          <TabPanel activeKey={activeTab} eventKey="order">
+          <TabPanel activeKey={activeTab} eventKey="opening">
             <Row className="g-3">
               <Col md={4}>
                 <Form.Label>Tipo</Form.Label>
@@ -609,34 +680,40 @@ export default function WorkOrderFormPage({ embedded = false }) {
               <div className="d-flex justify-content-between align-items-center mb-3">
                 <div>
                   <h5 className="mb-1">Serviços e pacotes iniciais</h5>
-                  <div className="small text-muted">Adicione serviços avulsos ou pacotes já montados para compor o valor previsto da OS.</div>
+                  <div className="small text-muted">Adicione primeiro a composição técnica da OS. A conferência de desconto e total fica na aba Financeiro.</div>
                 </div>
               </div>
 
               <Row className="g-2">
                 <Col md={5}>
-                  <Form.Label>Adicionar serviço</Form.Label>
-                  <Form.Select value={selectedServiceId} onChange={(event) => setSelectedServiceId(event.target.value)}>
-                    <option value="">Selecione um serviço</option>
-                    {services.map((service) => <option key={service.id} value={service.id}>{service.name} - {money(service.default_unit_price)}</option>)}
-                  </Form.Select>
+                  <SearchableSelect
+                    label="Adicionar serviço"
+                    value={selectedServiceId}
+                    options={serviceOptions}
+                    onChange={setSelectedServiceId}
+                    placeholder="Pesquisar serviço"
+                    emptyMessage="Nenhum serviço encontrado."
+                  />
                 </Col>
                 <Col md={1} className="d-flex align-items-end">
                   <Button type="button" variant="outline-primary" className="w-100" onClick={addSelectedService} disabled={!selectedServiceId}>+</Button>
                 </Col>
                 <Col md={5}>
-                  <Form.Label>Adicionar pacote</Form.Label>
-                  <Form.Select value={selectedPackageId} onChange={(event) => setSelectedPackageId(event.target.value)}>
-                    <option value="">Selecione um pacote</option>
-                    {servicePackages.map((servicePackage) => <option key={servicePackage.id} value={servicePackage.id}>{servicePackage.name} - {money(servicePackage.total_amount)}</option>)}
-                  </Form.Select>
+                  <SearchableSelect
+                    label="Adicionar pacote"
+                    value={selectedPackageId}
+                    options={packageOptions}
+                    onChange={setSelectedPackageId}
+                    placeholder="Pesquisar pacote"
+                    emptyMessage="Nenhum pacote encontrado."
+                  />
                 </Col>
                 <Col md={1} className="d-flex align-items-end">
                   <Button type="button" variant="outline-primary" className="w-100" onClick={addSelectedPackage} disabled={!selectedPackageId}>+</Button>
                 </Col>
               </Row>
 
-              {initialServiceItems.length > 0 && <Table responsive bordered hover className="mt-3 bg-white">
+              {initialServiceItems.length > 0 ? <Table responsive bordered hover className="mt-3 bg-white">
                 <thead>
                   <tr>
                     <th>Origem</th>
@@ -659,15 +736,23 @@ export default function WorkOrderFormPage({ embedded = false }) {
                     <td className="text-end"><Button type="button" size="sm" variant="outline-danger" onClick={() => removeInitialServiceItem(line.local_id)}>Remover</Button></td>
                   </tr>)}
                 </tbody>
-              </Table>}
+              </Table> : <Alert variant="light" className="border mt-3 mb-0">Nenhum serviço ou pacote adicionado ainda. A OS pode ser salva sem itens iniciais e receber serviços depois na tela de detalhes.</Alert>}
+            </>}
 
-              <Row className="mt-3 justify-content-end">
+            {editing && <Alert variant="info" className="mb-0">
+              Os serviços, pacotes e peças já lançados são mantidos no detalhe da OS. Use a tela de detalhes para incluir, editar ou remover itens técnicos.
+            </Alert>}
+          </TabPanel>
+
+          <TabPanel activeKey={activeTab} eventKey="financial">
+            <Row className="g-3 justify-content-end">
+              {!editing ? <>
                 <Col md={3}>
                   <Form.Label>Subtotal dos serviços/combos</Form.Label>
                   <Form.Control readOnly value={money(serviceSubtotal)}/>
                 </Col>
                 <Col md={3}>
-                  <Form.Label>Desconto</Form.Label>
+                  <Form.Label>Desconto geral da OS</Form.Label>
                   <MoneyInput value={form.manual_discount_amount} onChange={(value) => setForm({ ...form, manual_discount_amount: value })}/>
                   {serviceLineDiscount > 0 && <div className="small text-muted mt-1">Descontos por item: {money(serviceLineDiscount)}</div>}
                 </Col>
@@ -675,18 +760,14 @@ export default function WorkOrderFormPage({ embedded = false }) {
                   <Form.Label>Valor final previsto</Form.Label>
                   <Form.Control readOnly value={money(predictedTotal)}/>
                 </Col>
-              </Row>
-            </>}
-
-            {editing && <>
-              <Row className="justify-content-end">
-                <Col md={3}>
+              </> : <>
+                <Col md={4}>
                   <Form.Label>Desconto geral da OS</Form.Label>
                   <MoneyInput value={form.manual_discount_amount} onChange={(value) => setForm({ ...form, manual_discount_amount: value })}/>
+                  <div className="small text-muted mt-1">Serviços, peças, pagamentos e saldo ficam no detalhe da OS.</div>
                 </Col>
-              </Row>
-              <div className="small text-muted mt-2">Na edição, os serviços e pacotes já lançados devem ser ajustados dentro da tela de detalhes da OS.</div>
-            </>}
+              </>}
+            </Row>
           </TabPanel>
 
           <TabPanel activeKey={activeTab} eventKey="notes">

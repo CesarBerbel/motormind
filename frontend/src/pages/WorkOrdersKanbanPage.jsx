@@ -7,9 +7,10 @@ import SystemToast from "../components/SystemToast";
 import PageHeader from "../components/PageHeader";
 import AreaTabs from "../components/AreaTabs";
 import StatusBadge from "../components/StatusBadge";
-import { kanbanWorkOrderStatuses, money } from "../workshopOptions";
+import { kanbanWorkOrderStatuses, money, priorities } from "../workshopOptions";
 import SearchAutocompleteInput from "../components/SearchAutocompleteInput";
-import { buildSearchSuggestions } from "../utils/search";
+
+const HIDDEN_KANBAN_STATUSES = new Set(["draft", "delivered", "cancelled"]);
 
 async function fetchAllWorkOrders(params = {}) {
   const all = [];
@@ -26,9 +27,53 @@ async function fetchAllWorkOrders(params = {}) {
   return all;
 }
 
+function formatDateTime(value) {
+  return value ? new Date(value).toLocaleString("pt-BR") : "Sem previsão";
+}
+
+function workOrderSearchSuggestion(order) {
+  const title = [order.number, order.customer_name].filter(Boolean).join(" - ") || "Ordem de serviço";
+  const status = order.status_label || order.status || "Sem status";
+  const priority = order.priority_label || order.priority || "Sem prioridade";
+  const vehicle = order.vehicle_display || "Sem veículo";
+  const orderTitle = order.title || "Sem título";
+  const total = `Total: ${money(order.grand_total)}`;
+  const balance = `Saldo: ${money(order.balance_due)}`;
+  const promisedAt = `Previsão: ${formatDateTime(order.promised_at)}`;
+
+  return {
+    key: order.id,
+    label: title,
+    value: title,
+    description: [vehicle, orderTitle, status, priority].filter(Boolean).join(" • "),
+    meta: [promisedAt, total, balance, order.complaint].filter(Boolean).join(" • "),
+    payload: order,
+    searchText: [
+      order.number,
+      order.customer_name,
+      order.vehicle_display,
+      order.title,
+      order.complaint,
+      order.status,
+      order.status_label,
+      order.priority,
+      order.priority_label,
+      order.grand_total,
+      order.balance_due,
+      order.promised_at,
+    ].filter(Boolean).join(" "),
+  };
+}
+
+function buildWorkOrderSearchSuggestions(items) {
+  return (items || []).map(workOrderSearchSuggestion);
+}
+
 export default function WorkOrdersKanbanPage() {
   const [orders, setOrders] = useState([]);
   const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
+  const [priority, setPriority] = useState("");
   const [draggingId, setDraggingId] = useState(null);
   const [dropTarget, setDropTarget] = useState("");
   const [loading, setLoading] = useState(false);
@@ -36,19 +81,34 @@ export default function WorkOrdersKanbanPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
+  const visibleStatuses = useMemo(() => {
+    if (!status) return kanbanWorkOrderStatuses;
+    return kanbanWorkOrderStatuses.filter(([value]) => value === status);
+  }, [status]);
+
   const groupedOrders = useMemo(() => {
-    return kanbanWorkOrderStatuses.reduce((acc, [status]) => {
-      acc[status] = orders.filter((order) => order.status === status);
+    return visibleStatuses.reduce((acc, [currentStatus]) => {
+      acc[currentStatus] = orders.filter((order) => order.status === currentStatus);
       return acc;
     }, {});
-  }, [orders]);
+  }, [orders, visibleStatuses]);
 
-  async function load() {
+  async function load(nextSearch = search, nextStatus = status, nextPriority = priority) {
+    const normalizedSearch = String(nextSearch || "").trim();
+    const normalizedStatus = String(nextStatus || "").trim();
+    const normalizedPriority = String(nextPriority || "").trim();
+
     setLoading(true);
     setError("");
+
     try {
-      const data = await fetchAllWorkOrders(search ? { search } : {});
-      setOrders(data.filter((order) => !["draft", "delivered", "cancelled"].includes(order.status)));
+      const params = {};
+      if (normalizedSearch) params.search = normalizedSearch;
+      if (normalizedStatus) params.status = normalizedStatus;
+      if (normalizedPriority) params.priority = normalizedPriority;
+
+      const data = await fetchAllWorkOrders(params);
+      setOrders(data.filter((order) => !HIDDEN_KANBAN_STATUSES.has(order.status)));
     } catch (err) {
       setError(apiError(err));
     } finally {
@@ -56,8 +116,39 @@ export default function WorkOrdersKanbanPage() {
     }
   }
 
+  function clearSearch() {
+    setSearch("");
+    setStatus("");
+    setPriority("");
+    load("", "", "");
+  }
+
+  function selectWorkOrderSuggestion(suggestion, nextValue) {
+    const selectedOrder = suggestion?.payload;
+    setSearch(nextValue || "");
+
+    if (selectedOrder?.id && !HIDDEN_KANBAN_STATUSES.has(selectedOrder.status)) {
+      setOrders([selectedOrder]);
+      if (selectedOrder.status) setStatus(selectedOrder.status);
+      if (selectedOrder.priority) setPriority(selectedOrder.priority);
+      return;
+    }
+
+    load(nextValue, status, priority);
+  }
+
+  function handleStatusChange(value) {
+    setStatus(value);
+    load(search, value, priority);
+  }
+
+  function handlePriorityChange(value) {
+    setPriority(value);
+    load(search, status, value);
+  }
+
   useEffect(() => {
-    load();
+    load("", "", "");
   }, []);
 
   function onDragStart(event, orderId) {
@@ -107,15 +198,16 @@ export default function WorkOrdersKanbanPage() {
     }
   }
 
-  function onDrop(event, status) {
+  function onDrop(event, currentStatus) {
     event.preventDefault();
     const orderId = event.dataTransfer.getData("text/plain") || draggingId;
-    if (orderId) moveOrder(orderId, status);
+    if (orderId) moveOrder(orderId, currentStatus);
   }
 
-  return <>
+  return <div className="kanban-page">
     <PageHeader title="Kanban de ordens de serviço" subtitle="Arraste a OS entre as colunas para alterar o status.">
       <Button as={Link} to="/work-orders/new" className="me-2">Nova OS</Button>
+      <Button as={Link} to="/work-orders/agenda" variant="outline-primary" className="me-2">Agenda</Button>
       <Button as={Link} to="/work-orders" variant="outline-secondary">Lista</Button>
     </PageHeader>
 
@@ -125,13 +217,39 @@ export default function WorkOrdersKanbanPage() {
 
     <Card className="border-0 shadow-sm mb-3">
       <Card.Body>
-        <Row className="g-2 align-items-center">
-          <Col md={9}>
-            <SearchAutocompleteInput placeholder="Buscar por número, cliente, veículo ou relato" value={search} onChange={setSearch} onSearch={load} suggestions={buildSearchSuggestions(orders, ["number", "customer_name", "vehicle_display", "title", "complaint", "status_label"])} />
+        <Row className="g-2 align-items-end">
+          <Col xl={5} lg={6}>
+            <Form.Label>Busca</Form.Label>
+            <SearchAutocompleteInput
+              placeholder="Buscar por número, cliente, placa, título, relato, status ou prioridade"
+              value={search}
+              onChange={setSearch}
+              onSearch={(value) => load(value, status, priority)}
+              onSelect={selectWorkOrderSuggestion}
+              suggestions={buildWorkOrderSearchSuggestions(orders)}
+              disabled={loading || saving}
+            />
           </Col>
-          <Col md={3}>
-            <Button className="w-100" variant="outline-primary" onClick={load} disabled={loading || saving}>
-              {loading ? "Carregando..." : "Buscar / atualizar"}
+          <Col xl={2} lg={3} sm={6}>
+            <Form.Label>Status</Form.Label>
+            <Form.Select value={status} onChange={(event) => handleStatusChange(event.target.value)} disabled={loading || saving}>
+              <option value="">Todos</option>
+              {kanbanWorkOrderStatuses.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </Form.Select>
+          </Col>
+          <Col xl={2} lg={3} sm={6}>
+            <Form.Label>Prioridade</Form.Label>
+            <Form.Select value={priority} onChange={(event) => handlePriorityChange(event.target.value)} disabled={loading || saving}>
+              <option value="">Todas</option>
+              {priorities.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </Form.Select>
+          </Col>
+          <Col xl={3} className="d-flex gap-2">
+            <Button className="w-100" variant="outline-primary" onClick={() => load(search, status, priority)} disabled={loading || saving}>
+              {loading ? "Carregando..." : "Atualizar"}
+            </Button>
+            <Button className="w-100" variant="outline-secondary" onClick={clearSearch} disabled={loading || saving || (!search && !status && !priority)}>
+              Limpar pesquisa
             </Button>
           </Col>
         </Row>
@@ -141,17 +259,17 @@ export default function WorkOrdersKanbanPage() {
     {saving && <Alert variant="info" className="py-2">Salvando alteração de status...</Alert>}
 
     <div className="kanban-board">
-      {kanbanWorkOrderStatuses.map(([status, label]) => {
-        const columnOrders = groupedOrders[status] || [];
+      {visibleStatuses.map(([currentStatus, label]) => {
+        const columnOrders = groupedOrders[currentStatus] || [];
         return <section
-          key={status}
-          className={`kanban-column ${dropTarget === status ? "kanban-column-target" : ""}`}
+          key={currentStatus}
+          className={`kanban-column ${dropTarget === currentStatus ? "kanban-column-target" : ""}`}
           onDragOver={(event) => {
             event.preventDefault();
-            setDropTarget(status);
+            setDropTarget(currentStatus);
           }}
           onDragLeave={() => setDropTarget("")}
-          onDrop={(event) => onDrop(event, status)}
+          onDrop={(event) => onDrop(event, currentStatus)}
         >
           <div className="kanban-column-header">
             <span>{label}</span>
@@ -191,5 +309,5 @@ export default function WorkOrdersKanbanPage() {
         </section>;
       })}
     </div>
-  </>;
+  </div>;
 }

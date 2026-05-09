@@ -8,7 +8,6 @@ import TabbedFormFooter, { InlineTabbedFormFooter } from "../components/TabbedFo
 import PageHeader from "../components/PageHeader";
 import SearchableSelect from "../components/SearchableSelect";
 import SearchAutocompleteInput from "../components/SearchAutocompleteInput";
-import { buildSearchSuggestions } from "../utils/search";
 import { confirmDialog } from "../components/ConfirmDialog";
 
 const categoryTypes = [
@@ -18,6 +17,39 @@ const categoryTypes = [
   ["vehicle", "Veículo"],
   ["work_order", "Ordem de serviço"],
 ];
+
+
+function typeLabel(value) {
+  return categoryTypes.find(([type]) => type === value)?.[1] || value || "Sem tipo";
+}
+
+function categorySearchSuggestion(category) {
+  const type = category.type_label || typeLabel(category.type);
+  const title = [category.code, category.name].filter(Boolean).join(" - ") || "Categoria sem nome";
+  const status = category.is_active ? "Ativa" : "Inativa";
+
+  return {
+    key: category.id,
+    label: title,
+    value: title,
+    description: [type, status].filter(Boolean).join(" • "),
+    meta: category.description || "",
+    payload: category,
+    searchText: [
+      title,
+      category.code,
+      category.name,
+      category.description,
+      category.type,
+      type,
+      status,
+    ].filter(Boolean).join(" "),
+  };
+}
+
+function buildCategorySearchSuggestions(categories) {
+  return (categories || []).map(categorySearchSuggestion);
+}
 
 const tabs = [
   { key: "identification", label: "Identificação", description: "Tipo, código e nome" },
@@ -39,15 +71,41 @@ export default function CategoriesPage() {
   const typeOptions = categoryTypes.map(([value, label]) => ({ value, label }));
   const filterTypeOptions = [{ value: "", label: "Todos os tipos" }, ...typeOptions];
 
-  async function load() {
+  async function load(nextSearch = search, nextType = type) {
+    const normalizedSearch = String(nextSearch || "").trim();
+    const normalizedType = String(nextType || "").trim();
+
     try {
       const params = {};
-      if (search) params.search = search;
-      if (type) params.type = type;
+      if (normalizedSearch) params.search = normalizedSearch;
+      if (normalizedType) params.type = normalizedType;
       setItems(results((await api.get("/workshop/categories/", { params })).data));
     } catch (e) {
       setError(apiError(e));
     }
+  }
+
+  function clearSearch() {
+    setSearch("");
+    setType("");
+    load("", "");
+  }
+
+  function selectCategorySuggestion(suggestion, nextValue) {
+    const selectedCategory = suggestion?.payload;
+    setSearch(nextValue || "");
+
+    if (selectedCategory?.id) {
+      setItems([selectedCategory]);
+      return;
+    }
+
+    load(nextValue, type);
+  }
+
+  function handleTypeFilterChange(value) {
+    setType(value);
+    load(search, value);
   }
 
   useEffect(() => {
@@ -99,18 +157,25 @@ export default function CategoriesPage() {
           <Row className="g-2 align-items-end">
             <Col md={7}>
               <Form.Label>Busca</Form.Label>
-              <SearchAutocompleteInput placeholder="Buscar por código, nome ou descrição" value={search} onChange={setSearch} onSearch={load} suggestions={buildSearchSuggestions(items, ["type_label", "code", "name", "description"])} />
+              <SearchAutocompleteInput
+                placeholder="Buscar por código, nome, tipo, descrição ou status"
+                value={search}
+                onChange={setSearch}
+                onSearch={(value) => load(value, type)}
+                onSelect={selectCategorySuggestion}
+                suggestions={buildCategorySearchSuggestions(items)}
+              />
             </Col>
             <Col md={3}>
               <SearchableSelect
                 label="Tipo"
                 value={type}
                 options={filterTypeOptions}
-                onChange={setType}
+                onChange={handleTypeFilterChange}
                 placeholder="Pesquisar tipo"
               />
             </Col>
-            <Col md={2}><Button className="w-100" variant="outline-primary" onClick={load}>Buscar</Button></Col>
+            <Col md={2}><Button className="w-100" variant="outline-secondary" onClick={clearSearch} disabled={!search && !type}>Limpar pesquisa</Button></Col>
           </Row>
         </Card.Body>
       </Card>

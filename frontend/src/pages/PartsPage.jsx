@@ -12,7 +12,6 @@ import AreaTabs from "../components/AreaTabs";
 import SearchableSelect from "../components/SearchableSelect";
 import { money, normalizePartUnit, partUnitOptions } from "../workshopOptions";
 import SearchAutocompleteInput from "../components/SearchAutocompleteInput";
-import { buildSearchSuggestions } from "../utils/search";
 import { confirmDialog } from "../components/ConfirmDialog";
 
 const empty = () => ({
@@ -37,6 +36,54 @@ const emptyAdj = () => ({
   unit_cost: "",
   notes: "",
 });
+
+
+function partSearchSuggestion(part) {
+  const title = [part.sku, part.name].filter(Boolean).join(" - ") || "Peça sem nome";
+  const category = part.category_name || part.legacy_category_name || "Sem categoria";
+  const brand = part.brand || "Sem marca";
+  const stock = `Estoque: ${part.stock_quantity || 0} ${part.unit || ""}`.trim();
+  const minimum = `Mínimo: ${part.minimum_stock || 0}`;
+  const salePrice = `Venda: ${money(part.sale_price)}`;
+  const costPrice = `Custo: ${money(part.cost_price)}`;
+  const usage = `Uso em OS: ${part.usage_count || 0}`;
+  const featured = part.is_featured ? "Preferida" : "Não preferida";
+  const status = part.is_active ? "Ativa" : "Inativa";
+  const lowStock = part.is_low_stock ? "Baixo estoque" : "Estoque ok";
+
+  return {
+    key: part.id,
+    label: title,
+    value: title,
+    description: [category, brand, stock, minimum].filter(Boolean).join(" • "),
+    meta: [salePrice, costPrice, usage, featured, lowStock, status, part.location, part.description].filter(Boolean).join(" • "),
+    payload: part,
+    searchText: [
+      title,
+      part.sku,
+      part.name,
+      part.brand,
+      category,
+      part.category_name,
+      part.legacy_category_name,
+      part.description,
+      part.location,
+      part.unit,
+      part.cost_price,
+      part.sale_price,
+      part.stock_quantity,
+      part.minimum_stock,
+      usage,
+      featured,
+      lowStock,
+      status,
+    ].filter(Boolean).join(" "),
+  };
+}
+
+function buildPartSearchSuggestions(parts) {
+  return (parts || []).map(partSearchSuggestion);
+}
 
 const tabs = [
   { key: "identification", label: "Identificação", description: "SKU, peça, categoria e marca" },
@@ -72,12 +119,15 @@ export default function PartsPage() {
     ...categories.map((category) => ({ value: category.id, label: category.name })),
   ];
 
-  async function load() {
+  async function load(nextSearch = search, nextCategoryFilter = categoryFilter, nextLow = low) {
+    const normalizedSearch = String(nextSearch || "").trim();
+    const normalizedCategory = String(nextCategoryFilter || "").trim();
+
     try {
       const params = {};
-      if (search) params.search = search;
-      if (categoryFilter) params.category = categoryFilter;
-      if (low) params.low_stock = "true";
+      if (normalizedSearch) params.search = normalizedSearch;
+      if (normalizedCategory) params.category = normalizedCategory;
+      if (nextLow) params.low_stock = "true";
       const [partsRes, categoriesRes] = await Promise.all([
         api.get("/workshop/parts/", { params: { ...params, ordering: "most_used" } }),
         api.get("/workshop/categories/", { params: { type: "part", active: "true" } }),
@@ -87,6 +137,35 @@ export default function PartsPage() {
     } catch (err) {
       setError(apiError(err));
     }
+  }
+
+  function clearSearch() {
+    setSearch("");
+    setCategoryFilter("");
+    setLow(false);
+    load("", "", false);
+  }
+
+  function selectPartSuggestion(suggestion, nextValue) {
+    const selectedPart = suggestion?.payload;
+    setSearch(nextValue || "");
+
+    if (selectedPart?.id) {
+      setItems([selectedPart]);
+      return;
+    }
+
+    load(nextValue, categoryFilter, low);
+  }
+
+  function handleCategoryFilterChange(value) {
+    setCategoryFilter(value);
+    load(search, value, low);
+  }
+
+  function handleLowStockChange(checked) {
+    setLow(checked);
+    load(search, categoryFilter, checked);
   }
 
   async function loadBrandOptions(query = "") {
@@ -107,10 +186,6 @@ export default function PartsPage() {
     load();
     loadBrandOptions();
   }, []);
-
-  useEffect(() => {
-    load();
-  }, [low, categoryFilter]);
 
   function update(patch) {
     setForm((current) => ({ ...current, ...patch }));
@@ -205,24 +280,31 @@ export default function PartsPage() {
     <Card className="border-0 shadow-sm mb-3">
       <Card.Body>
         <Row className="g-2 align-items-end">
-          <Col md={5}>
+          <Col md={6}>
             <Form.Label>Busca</Form.Label>
-            <SearchAutocompleteInput placeholder="Buscar por SKU, peça, marca ou categoria" value={search} onChange={setSearch} onSearch={load} suggestions={buildSearchSuggestions(items, ["sku", "name", "brand", "category_name", "legacy_category_name", "description"])} />
+            <SearchAutocompleteInput
+              placeholder="Buscar por SKU, peça, marca, categoria, preço, estoque, local ou status"
+              value={search}
+              onChange={setSearch}
+              onSearch={(value) => load(value, categoryFilter, low)}
+              onSelect={selectPartSuggestion}
+              suggestions={buildPartSearchSuggestions(items)}
+            />
           </Col>
           <Col md={3}>
             <SearchableSelect
               label="Categoria"
               value={categoryFilter}
               options={categoryFilterOptions}
-              onChange={setCategoryFilter}
+              onChange={handleCategoryFilterChange}
               placeholder="Pesquisar categoria"
             />
           </Col>
-          <Col md={2}>
-            <Form.Check label="Baixo estoque" checked={low} onChange={(event) => setLow(event.target.checked)}/>
+          <Col md={1}>
+            <Form.Check label="Baixo estoque" checked={low} onChange={(event) => handleLowStockChange(event.target.checked)}/>
           </Col>
           <Col md={2}>
-            <Button className="w-100" variant="outline-primary" onClick={load}>Buscar</Button>
+            <Button className="w-100" variant="outline-secondary" onClick={clearSearch} disabled={!search && !categoryFilter && !low}>Limpar pesquisa</Button>
           </Col>
         </Row>
       </Card.Body>
